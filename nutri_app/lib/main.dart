@@ -1,6 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: "AIzaSyDyrMofbBJwepKxQKU6MC42HNWDwNaPCW8",
+      appId: "1:190206968334:web:c32281725602697beab25f",
+      messagingSenderId: "190206968334",
+      projectId: "nutriapp-grupo6",
+      authDomain: "nutriapp-grupo6.firebaseapp.com",
+      storageBucket: "nutriapp-grupo6.firebasestorage.app",
+      measurementId: "G-1T44CGF46Y",
+    ),
+  );
+
   runApp(const NutriApp());
 }
 
@@ -19,8 +35,31 @@ class NutriApp extends StatelessWidget {
 // ==========================================
 // PANTALLA DE LOGIN
 // ==========================================
-class PantallaLogin extends StatelessWidget {
+class PantallaLogin extends StatefulWidget {
   const PantallaLogin({super.key});
+
+  @override
+  State<PantallaLogin> createState() => _PantallaLoginState();
+}
+
+class _PantallaLoginState extends State<PantallaLogin> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  Future<void> _iniciarSesion() async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('¡Inicio de sesión exitoso!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,16 +67,12 @@ class PantallaLogin extends StatelessWidget {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          // Agregado para evitar errores si el teclado se abre
           padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 60.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo
               Image.asset('assets/icon_login_leaf.png', height: 80),
               const SizedBox(height: 15),
-
-              // Título
               const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -60,21 +95,19 @@ class PantallaLogin extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 40),
-
-              // Input: Correo electrónico
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                controller: _emailController,
+                decoration: const InputDecoration(
                   hintText: 'Correo electrónico',
                   prefixIcon: Icon(Icons.email_rounded),
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Input: Contraseña
-              const TextField(
+              TextField(
+                controller: _passwordController,
                 obscureText: true,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   hintText: 'Contraseña',
                   prefixIcon: Icon(Icons.lock_rounded),
                   suffixIcon: Icon(Icons.visibility_rounded),
@@ -82,13 +115,11 @@ class PantallaLogin extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 30),
-
-              // Botón: Entrar
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: _iniciarSesion,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
@@ -102,41 +133,12 @@ class PantallaLogin extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-
-              // Enlace: Recuperar contraseña
-              TextButton(
-                onPressed: () {},
-                child: const Text(
-                  '¿Olvidaste tu contraseña?',
-                  style: TextStyle(
-                    color: Colors.blue,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Separador visual
-              const Row(
-                children: [
-                  Expanded(child: Divider(color: Colors.grey)),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('o', style: TextStyle(color: Colors.grey)),
-                  ),
-                  Expanded(child: Divider(color: Colors.grey)),
-                ],
-              ),
               const SizedBox(height: 20),
-
-              // Botón: Crear Cuenta
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: OutlinedButton(
                   onPressed: () {
-                    // Esta es la instrucción que abre la pantalla de registro
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -168,8 +170,33 @@ class PantallaLogin extends StatelessWidget {
 // ==========================================
 // PANTALLA DE REGISTRO
 // ==========================================
-class PantallaRegistro extends StatelessWidget {
+class PantallaRegistro extends StatefulWidget {
   const PantallaRegistro({super.key});
+
+  @override
+  State<PantallaRegistro> createState() => _PantallaRegistroState();
+}
+
+class _PantallaRegistroState extends State<PantallaRegistro> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  Future<void> _registrarUsuario() async {
+    try {
+      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('¡Cuenta creada con éxito en Firebase!')),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al registrar: ${e.toString()}')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -182,7 +209,6 @@ class PantallaRegistro extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-              // Título
               const Text(
                 'Crear Cuenta',
                 style: TextStyle(
@@ -193,36 +219,23 @@ class PantallaRegistro extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Por favor, completa los siguientes campos.',
+                'Por favor completa los siguientes campos.',
                 style: TextStyle(fontSize: 16, color: Colors.grey),
-                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
-
-              // Input: Nombre
-              const TextField(
-                decoration: InputDecoration(
-                  hintText: 'Nombre completo',
-                  prefixIcon: Icon(Icons.person_rounded),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Input: Correo electrónico
-              const TextField(
-                decoration: InputDecoration(
+              TextField(
+                controller: _emailController,
+                decoration: const InputDecoration(
                   hintText: 'Correo electrónico',
                   prefixIcon: Icon(Icons.email_rounded),
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Input: Contraseña
-              const TextField(
+              TextField(
+                controller: _passwordController,
                 obscureText: true,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   hintText: 'Contraseña',
                   prefixIcon: Icon(Icons.lock_rounded),
                   suffixIcon: Icon(Icons.visibility_rounded),
@@ -230,13 +243,11 @@ class PantallaRegistro extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 30),
-
-              // Botón: Registrate
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: _registrarUsuario,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
@@ -251,11 +262,9 @@ class PantallaRegistro extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Enlace: Volver al login
               TextButton(
                 onPressed: () {
-                  Navigator.pop(context); // Regresa a la pantalla anterior
+                  Navigator.pop(context);
                 },
                 child: const Text(
                   '¿Ya tienes cuenta? Inicia sesión',
