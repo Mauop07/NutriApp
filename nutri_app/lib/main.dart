@@ -9,13 +9,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'pantalla_principal.dart';
 import 'pantalla_datos_personales.dart';
 
-// Tema global de la aplicación
+// Tema global de la aplicacion
 import 'app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicialización de Firebase con credenciales del proyecto
+  // Inicializacion de Firebase con credenciales del proyecto
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyDyrMofbBJwepKxQKU6MC42HNWDwNaPCW8",
@@ -31,8 +31,8 @@ void main() async {
   runApp(const NutriApp());
 }
 
-/// Contenedor raíz de la aplicación. Configura el tema global,
-/// la localización y la vista inicial.
+/// Contenedor raiz de la aplicacion. Configura el tema global,
+/// la localizacion y la vista inicial.
 class NutriApp extends StatelessWidget {
   const NutriApp({super.key});
 
@@ -56,7 +56,7 @@ class NutriApp extends StatelessWidget {
 // PANTALLA DE LOGIN
 // ==========================================
 
-/// Interfaz de autenticación por correo y contraseña con Firebase Auth.
+/// Interfaz de autenticacion por correo y contraseña con Firebase Auth.
 class PantallaLogin extends StatefulWidget {
   const PantallaLogin({super.key});
 
@@ -70,7 +70,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
   bool _obscurePassword = true;
 
-  /// Valida credenciales e inicia sesión en Firebase.
+  /// Valida credenciales e inicia sesion en Firebase.
   Future<void> _iniciarSesion() async {
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -86,7 +86,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error de autenticación: ${e.toString()}')),
+        SnackBar(content: Text('Error de autenticacion: ${e.toString()}')),
       );
     }
   }
@@ -139,7 +139,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  hintText: 'Correo electrónico',
+                  hintText: 'Correo electronico',
                   prefixIcon: Icon(Icons.email_rounded),
                 ),
               ),
@@ -238,7 +238,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('¡Cuenta creada con éxito!')),
+        const SnackBar(content: Text('¡Cuenta creada con exito!')),
       );
 
       Navigator.pushReplacement(
@@ -291,7 +291,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  hintText: 'Correo electrónico',
+                  hintText: 'Correo electronico',
                   prefixIcon: Icon(Icons.email_rounded),
                 ),
               ),
@@ -337,7 +337,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                   Navigator.pop(context);
                 },
                 child: Text(
-                  '¿Ya tienes cuenta? Inicia sesión',
+                  '¿Ya tienes cuenta? Inicia sesion',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w500,

@@ -5,8 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'pantalla_datos_personales.dart';
 import 'main.dart';
 
-/// Pantalla principal (Dashboard). Gestiona la navegación inferior
-/// y muestra el resumen calórico diario, el progreso y la vista de perfil.
+/// Pantalla principal (Dashboard). Gestiona la navegacion inferior
+/// y muestra el resumen calorico diario, el progreso y la vista de perfil.
 class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
 
@@ -16,6 +16,8 @@ class PantallaPrincipal extends StatefulWidget {
 
 class _PantallaPrincipalState extends State<PantallaPrincipal> {
   int _indiceActual = 1;
+  double _tmb = 0.0; // Tasa Metabolica Basal (BMR)
+  double _caloriasMantenimiento = 0.0; // Calorias de mantenimiento
 
   // Estado del Dashboard
   double _caloriasActuales = 0.0;
@@ -26,10 +28,12 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   String _nombreUsuario = 'Usuario';
   String _correoUsuario = '';
   String _fechaNacimiento = '-';
+  int _edad = 0;
   double _pesoKg = 0.0;
   double _alturaCm = 0.0;
   String _genero = '-';
   String _nivelActividad = '-';
+  String _factorActividad = '-';
 
   bool get _limiteSuperado => _caloriasActuales > _caloriasMeta;
 
@@ -39,7 +43,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     _cargarDatosUsuario();
   }
 
-  /// Recupera la información del usuario autenticado desde Firestore.
+  /// Recupera la informacion del usuario autenticado desde Firestore.
   Future<void> _cargarDatosUsuario() async {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -70,10 +74,15 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
             _nombreUsuario = data['nombre'] ?? 'Usuario';
             _caloriasMeta = (data['meta_calorica'] ?? 2000).toDouble();
             _fechaNacimiento = fechaFormateada;
+            _edad = data['edad'] ?? 0;
             _pesoKg = (data['peso_kg'] ?? 0).toDouble();
             _alturaCm = (data['altura_cm'] ?? 0).toDouble();
             _genero = data['genero'] ?? '-';
             _nivelActividad = actividadTexto;
+            _factorActividad = actividadRaw;
+            _tmb = (data['tmb'] ?? 0).toDouble();
+            _caloriasMantenimiento = (data['calorias_mantenimiento'] ?? 0)
+                .toDouble();
           });
         }
       } catch (e) {
@@ -90,7 +99,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     }
   }
 
-  /// Traduce el multiplicador numérico de actividad física a una etiqueta legible.
+  /// Traduce el multiplicador numerico de actividad fisica a una etiqueta legible.
   String _mapearActividad(String valor) {
     switch (valor) {
       case '1.2':
@@ -141,7 +150,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   }
 
   // ==========================================
-  // NAVEGACIÓN DE VISTAS
+  // NAVEGACION DE VISTAS
   // ==========================================
 
   Widget _obtenerPantallaActual() {
@@ -161,7 +170,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     return const Center(
       key: ValueKey(0),
       child: Text(
-        'Historial de Comidas\n(Próximamente)',
+        'Historial de Comidas\n(Proximamente)',
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 22,
@@ -230,7 +239,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Tarjeta de Identificación
+                  // Tarjeta de Identificacion
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -277,7 +286,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Tarjeta de Datos Fisiológicos
+                  // Tarjeta de Datos Fisiologicos
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -288,7 +297,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Información personal',
+                          'Informacion personal',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -302,12 +311,44 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                         const Divider(),
                         _buildFilaDato('Estatura', '${_alturaCm.toInt()} cm'),
                         const Divider(),
-                        _buildFilaDato('Género', _genero),
+                        _buildFilaDato('Genero', _genero),
                         const Divider(),
                         _buildFilaDato('Nivel de actividad', _nivelActividad),
                         const Divider(),
+                        // 1. Bloque de Tasa Metabolica Basal (TMB)
+                        _buildFilaDatoInteractiva(
+                          'Tasa Metabolica Basal (TMB)',
+                          '${_tmb.toInt()} kcal',
+                          () {
+                            String formulaAmigable = _genero == 'Masculino'
+                                ? '88.4 + (13.4 × ${_pesoKg.toInt()} kg) + (4.8 × ${_alturaCm.toInt()} cm) - (5.7 × $_edad años)'
+                                : '447.6 + (9.2 × ${_pesoKg.toInt()} kg) + (3.1 × ${_alturaCm.toInt()} cm) - (4.3 × $_edad años)';
+
+                            _mostrarExplicacionCalculo(
+                              'Tasa Metabolica Basal',
+                              'Calorias diarias que tu cuerpo requiere exclusivamente para mantener sus funciones vitales en reposo.\n\n'
+                                  'Calculo (Harris-Benedict):\n'
+                                  '$formulaAmigable\n\n'
+                                  'Total = ${_tmb.toInt()} kcal.',
+                            );
+                          },
+                        ),
+                        const Divider(),
+
+                        // 2. Bloque de Calorias de Mantenimiento
+                        _buildFilaDatoInteractiva(
+                          'Calorias de Mantenimiento',
+                          '${_caloriasMantenimiento.toInt()} kcal',
+                          () => _mostrarExplicacionCalculo(
+                            'Calorias de Mantenimiento',
+                            'Calorias diarias requeridas para mantener tu peso actual, ajustadas a tu estilo de vida.\n\n'
+                                'Calculo:\n'
+                                'TMB (${_tmb.toInt()} kcal) × Nivel de actividad ($_nivelActividad: $_factorActividad).',
+                          ),
+                        ),
+                        const Divider(),
                         _buildFilaDato(
-                          'Meta calórica',
+                          'Meta calorica (Ingresada)',
                           '${_caloriasMeta.toInt()} kcal',
                         ),
                       ],
@@ -332,7 +373,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                       onPressed: () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Sección de Progreso próximamente'),
+                            content: Text('Seccion de Progreso proximamente'),
                           ),
                         );
                       },
@@ -403,7 +444,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                         );
                       },
                       child: const Text(
-                        'Cerrar Sesión',
+                        'Cerrar Sesion',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -441,6 +482,78 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  Widget _buildFilaDatoInteractiva(
+    String etiqueta,
+    String valor,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Text(
+                  etiqueta,
+                  style: const TextStyle(color: Colors.black54, fontSize: 15),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Colors.blueAccent,
+                ),
+              ],
+            ),
+            Text(
+              valor,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _mostrarExplicacionCalculo(String titulo, String explicacion) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Text(
+            titulo,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            explicacion,
+            style: const TextStyle(fontSize: 15, color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Entendido',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ==========================================
   // WIDGETS DEL DASHBOARD
   // ==========================================
@@ -449,7 +562,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     return Column(
       children: [
         Text(
-          _limiteSuperado ? 'Límite superado' : 'Vas muy bien',
+          _limiteSuperado ? 'Limite superado' : 'Vas muy bien',
           style: const TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.bold,
@@ -459,8 +572,8 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         const SizedBox(height: 2),
         Text(
           _limiteSuperado
-              ? 'Has superado tu meta calórica'
-              : 'Sigue con tus hábitos saludables',
+              ? 'Has superado tu meta calorica'
+              : 'Sigue con tus habitos saludables',
           style: const TextStyle(fontSize: 18, color: Colors.white70),
           textAlign: TextAlign.center,
         ),
@@ -526,7 +639,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
             ),
           ),
           const SizedBox(height: 16),
-          _buildFilaTabla('Hora', 'Comida', 'Calorías', esEncabezado: true),
+          _buildFilaTabla('Hora', 'Comida', 'Calorias', esEncabezado: true),
           const Divider(),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 16.0),

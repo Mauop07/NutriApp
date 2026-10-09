@@ -10,8 +10,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 // Pantallas locales
 import 'pantalla_principal.dart';
 
-/// Pantalla de captura y actualización de datos fisiológicos.
-/// Gestiona métricas físicas, consumo del backend de cálculo y persistencia en Firestore.
+/// Pantalla de captura y actualizacion de datos fisiologicos.
+/// Gestiona metricas fisicas, consumo del backend de calculo y persistencia en Firestore.
 class PantallaDatosPersonales extends StatefulWidget {
   const PantallaDatosPersonales({super.key});
 
@@ -32,7 +32,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
   String? _genero;
   String? _nivelActividad;
 
-  // Catálogos para selectores
+  // Catalogos para selectores
   final List<String> _opcionesGenero = ['Femenino', 'Masculino'];
   final List<Map<String, dynamic>> _opcionesActividad = [
     {'label': 'Sedentario', 'value': '1.2'},
@@ -119,7 +119,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     return edad;
   }
 
-  /// Valida el formulario, solicita el cálculo calórico al backend y persiste en Firestore.
+  /// Valida el formulario, solicita el calculo calorico al backend y persiste en Firestore.
   Future<void> _guardarYContinuar() async {
     if (_nombreController.text.trim().isEmpty ||
         _fechaNacimiento == null ||
@@ -191,7 +191,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+          .showSnackBar(SnackBar(content: Text('Error de conexion: $e')));
     }
   }
 
@@ -216,7 +216,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Estos datos son necesarios para calcular tu meta calórica ideal.',
+                'Estos datos son necesarios para calcular tu meta calorica ideal.',
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
               const SizedBox(height: 32),
@@ -276,13 +276,13 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 16),
 
-              // Género
+              // Genero
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(
-                  labelText: 'Género',
+                  labelText: 'Genero',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
-                value: _genero,
+                initialValue: _genero,
                 items: _opcionesGenero.map((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
@@ -299,7 +299,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                   labelText: 'Nivel de Actividad',
                   prefixIcon: Icon(Icons.directions_run),
                 ),
-                value: _nivelActividad,
+                initialValue: _nivelActividad,
                 items: _opcionesActividad.map((map) {
                   return DropdownMenuItem<String>(
                     value: map['value'],
@@ -311,19 +311,19 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 16),
 
-              // Meta Calórica opcional
+              // Meta Calorica opcional
               TextField(
                 controller: _metaCaloricaController,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Meta Calórica (Opcional)',
+                  labelText: 'Meta Calorica (Opcional)',
                   hintText: 'Ej. 2000',
                   prefixIcon: Icon(Icons.local_fire_department_outlined),
                 ),
               ),
               const SizedBox(height: 40),
 
-              // Botón de Envío
+              // Boton de Envio
               SizedBox(
                 width: double.infinity,
                 height: 50,
