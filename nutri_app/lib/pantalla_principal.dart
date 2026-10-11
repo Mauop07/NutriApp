@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'pantalla_registro_alimentos.dart';
 import 'pantalla_datos_personales.dart';
 import 'main.dart';
 
@@ -23,6 +24,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   double _caloriasActuales = 0.0;
   double _caloriasMeta = 2000.0;
   bool _cargandoDatos = true;
+  final List<Map<String, String>> _comidasDeHoy = [];
 
   // Datos del Perfil
   String _nombreUsuario = 'Usuario';
@@ -34,6 +36,46 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   String _genero = '-';
   String _nivelActividad = '-';
   String _factorActividad = '-';
+
+  // Obtiene la fecha actual en formato YYYY-MM-DD para usarla como ID
+  String _obtenerFechaHoy() {
+    final ahora = DateTime.now();
+    return '${ahora.year}-${ahora.month.toString().padLeft(2, '0')}-${ahora.day.toString().padLeft(2, '0')}';
+  }
+
+  // Guarda la comida en el historial diario del usuario en Firestore
+  Future<void> _guardarComidaEnFirestore(
+    String nombre,
+    int kcal,
+    String hora,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final fechaHoy = _obtenerFechaHoy();
+    final docRef = FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .collection('historial_diario')
+        .doc(fechaHoy);
+
+    final nuevaComida = {
+      'hora': hora,
+      'comida': nombre,
+      'calorias': '$kcal kcal',
+    };
+
+    try {
+      // merge: true crea el documento si es la primera comida del día,
+      // si ya existe, solo inyecta la nueva comida al arreglo y suma las calorías.
+      await docRef.set({
+        'calorias_totales': FieldValue.increment(kcal),
+        'comidas': FieldValue.arrayUnion([nuevaComida]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Error guardando en historial: $e");
+    }
+  }
 
   bool get _limiteSuperado => _caloriasActuales > _caloriasMeta;
 
@@ -53,10 +95,42 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
       });
 
       try {
+        // 1. Descargar datos del perfil
         final doc = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(user.uid)
             .get();
+
+        // 2. Descargar historial de comidas de hoy
+        final fechaHoy = _obtenerFechaHoy();
+        final historialDoc = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(user.uid)
+            .collection('historial_diario')
+            .doc(fechaHoy)
+            .get();
+
+        double caloriasGuardadas = 0.0;
+        List<Map<String, String>> listaComidasGuardadas = [];
+
+        if (historialDoc.exists && historialDoc.data() != null) {
+          final historialData = historialDoc.data()!;
+          caloriasGuardadas = (historialData['calorias_totales'] ?? 0)
+              .toDouble();
+
+          if (historialData['comidas'] != null) {
+            final listaRaw = historialData['comidas'] as List;
+            listaComidasGuardadas = listaRaw
+                .map(
+                  (e) => {
+                    'hora': e['hora'].toString(),
+                    'comida': e['comida'].toString(),
+                    'calorias': e['calorias'].toString(),
+                  },
+                )
+                .toList();
+          }
+        }
 
         if (doc.exists && doc.data() != null) {
           final data = doc.data()!;
@@ -83,6 +157,11 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
             _tmb = (data['tmb'] ?? 0).toDouble();
             _caloriasMantenimiento = (data['calorias_mantenimiento'] ?? 0)
                 .toDouble();
+
+            // Asignamos el historial recuperado a las variables del Dashboard
+            _caloriasActuales = caloriasGuardadas;
+            _comidasDeHoy.clear();
+            _comidasDeHoy.addAll(listaComidasGuardadas);
           });
         }
       } catch (e) {
@@ -186,34 +265,18 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
       key: const ValueKey(1),
       child: Column(
         children: [
+          const SizedBox(height: 10),
+          _buildTextosEstado(),
+          const SizedBox(height: 30),
+          _buildAroProgreso(),
+          const SizedBox(height: 30),
+          // La tabla ahora ocupa el resto del espacio, manteniendo margen abajo
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: IntrinsicHeight(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 10),
-                          _buildTextosEstado(),
-                          const SizedBox(height: 48),
-                          _buildAroProgreso(),
-                          const Spacer(),
-                          const SizedBox(height: 40),
-                          _buildTablaComidas(),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: _buildTablaComidas(),
             ),
           ),
-          const SizedBox(height: 16),
-          _buildBotonRegistrar(),
         ],
       ),
     );
@@ -622,34 +685,63 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 
   Widget _buildTablaComidas() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      // Padding optimizado para ganar espacio vertical
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Comidas de hoy',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildFilaTabla('Hora', 'Comida', 'Calorias', esEncabezado: true),
-          const Divider(),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16.0),
-            child: Center(
-              child: Text(
-                'Sin registros (Placeholder)',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
+          const Center(
+            child: Text(
+              'Comidas de hoy',
+              style: TextStyle(
+                fontSize: 22, // Mantén aquí el tamaño que elegiste
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
               ),
             ),
           ),
+          const SizedBox(height: 8), // Reducido de 16
+          _buildFilaTabla('Hora', 'Comida', 'Calorías', esEncabezado: true),
+          const SizedBox(height: 4), // Reducido de 6
+          const Divider(color: Colors.black26, thickness: 2),
+          Expanded(
+            child: _comidasDeHoy.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Aún no has registrado comidas',
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _comidasDeHoy.length,
+                    itemBuilder: (context, index) {
+                      final comida = _comidasDeHoy[index];
+                      return Padding(
+                        // Filas más compactas para que quepan más en pantalla
+                        padding: const EdgeInsets.symmetric(vertical: 6.0),
+                        child: _buildFilaTabla(
+                          comida['hora']!,
+                          comida['comida']!,
+                          comida['calorias']!,
+                          esCaloriaAzul: true,
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const SizedBox(height: 10), // Reducido de 16
+          _buildBotonRegistrar(),
         ],
       ),
     );
@@ -660,17 +752,29 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     String comida,
     String calorias, {
     bool esEncabezado = false,
+    bool esCaloriaAzul = false,
   }) {
-    final estilo = TextStyle(
-      fontWeight: esEncabezado ? FontWeight.bold : FontWeight.normal,
+    final estiloBase = TextStyle(
+      fontSize: 14,
+      color: esEncabezado ? Colors.black54 : Colors.black,
+      fontWeight: FontWeight.bold,
     );
 
     return Row(
       children: [
-        Expanded(child: Text(hora, style: estilo)),
-        Expanded(child: Text(comida, style: estilo)),
+        SizedBox(width: 70, child: Text(hora, style: estiloBase)),
         Expanded(
-          child: Text(calorias, style: estilo, textAlign: TextAlign.right),
+          child: Text(comida, style: estiloBase, textAlign: TextAlign.left),
+        ),
+        Text(
+          calorias,
+          style: esCaloriaAzul
+              ? const TextStyle(
+                  color: Color(0xFF1E88E5),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                )
+              : estiloBase,
         ),
       ],
     );
@@ -679,25 +783,52 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   Widget _buildBotonRegistrar() {
     return SizedBox(
       width: double.infinity,
+      height: 56, // Altura original de él
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
+          backgroundColor: _limiteSuperado
+              ? const Color(0xFFE53935)
+              : Theme.of(context).colorScheme.primary, // Conectado a tu paleta
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 20),
+          elevation: 0,
         ),
         onPressed: () {
-          setState(() {
-            _caloriasActuales += 250;
-          });
+          // Transición suave (Fade) para emparejar con el AnimatedSwitcher de tu menú
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  PantallaRegistroAlimentos(
+                    onComidaAgregada: (nombre, kcal) {
+                      final ahora = DateTime.now();
+                      final horaFormateada =
+                          '${ahora.hour.toString().padLeft(2, '0')}:${ahora.minute.toString().padLeft(2, '0')}';
+
+                      setState(() {
+                        _caloriasActuales += kcal;
+                        _comidasDeHoy.add({
+                          'hora': horaFormateada,
+                          'comida': nombre,
+                          'calorias': '$kcal kcal',
+                        });
+                      });
+
+                      _guardarComidaEnFirestore(nombre, kcal, horaFormateada);
+                    },
+                  ),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+            ),
+          );
         },
-        child: Text(
+        child: const Text(
           'Registrar comida',
           style: TextStyle(
-            color: _limiteSuperado
-                ? const Color(0xFFE53935)
-                : Theme.of(context).colorScheme.primary,
+            color: Colors.white,
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
