@@ -1,17 +1,15 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-
-// Dependencias de Firebase
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 // Pantallas locales
 import 'pantalla_principal.dart';
 
+// Calculos de calorias y TMB locales
+import 'calculadora_nutricional.dart';
+
 /// Pantalla de captura y actualizacion de datos fisiologicos.
-/// Gestiona metricas fisicas, consumo del backend de calculo y persistencia en Firestore.
+/// Gestiona metricas fisicas, calculo local de calorias y persistencia en Firestore.
 class PantallaDatosPersonales extends StatefulWidget {
   const PantallaDatosPersonales({super.key});
 
@@ -69,9 +67,9 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
           }
 
           final generoDb = data['genero'];
-          if (generoDb == 'M') {
+          if (generoDb == 'Masculino' || generoDb == 'M') {
             _genero = 'Masculino';
-          } else if (generoDb == 'F') {
+          } else if (generoDb == 'Femenino' || generoDb == 'F') {
             _genero = 'Femenino';
           }
 
@@ -119,7 +117,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     return edad;
   }
 
-  /// Valida el formulario, solicita el calculo calorico al backend y persiste en Firestore.
+  /// Valida el formulario, ejecuta el calculo calorico localmente y persiste en Firestore.
   Future<void> _guardarYContinuar() async {
     if (_nombreController.text.trim().isEmpty ||
         _fechaNacimiento == null ||
@@ -136,62 +134,66 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
       return;
     }
 
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // 1. Convertir datos
     final edad = _calcularEdad(_fechaNacimiento!);
-    final generoBackend = _genero == 'Masculino' ? 'M' : 'F';
-    final peso = _pesoController.text.trim();
-    final altura = _estaturaController.text.trim();
+    final peso = double.tryParse(_pesoController.text.trim()) ?? 0.0;
+    final altura = double.tryParse(_estaturaController.text.trim()) ?? 0.0;
+    final factorActividad = double.tryParse(_nivelActividad!) ?? 1.2;
+
+    // 2. Ejecutar cálculos locales instantáneos
+    double tmbCalculada = CalculadoraNutricional.calcularTMB(
+      genero: _genero!,
+      pesoKg: peso,
+      alturaCm: altura,
+      edad: edad,
+    );
+
+    double caloriasMantenimiento = CalculadoraNutricional.calcularMantenimiento(
+      tmbCalculada,
+      factorActividad,
+    );
+
+    // 3. Determinar meta calórica (si el usuario la dejó en blanco, usa mantenimiento)
+    double metaFinal = caloriasMantenimiento;
+    if (_metaCaloricaController.text.trim().isNotEmpty) {
+      metaFinal =
+          double.tryParse(_metaCaloricaController.text.trim()) ??
+          caloriasMantenimiento;
+    }
 
     try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final url = Uri.parse(
-        'http://127.0.0.1:3000/calcular?peso=$peso&altura=$altura&edad=$edad&genero=$generoBackend&actividad=$_nivelActividad&t=$timestamp',
+      // 4. Subir a Firestore
+      await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).set(
+        {
+          'nombre': _nombreController.text.trim(),
+          'fechaNacimiento': _fechaNacimiento?.toIso8601String(),
+          'peso_kg': peso,
+          'altura_cm': altura,
+          'genero': _genero,
+          'edad': edad,
+          'nivelActividad': _nivelActividad,
+          'tmb': tmbCalculada,
+          'calorias_mantenimiento': caloriasMantenimiento,
+          'meta_calorica': metaFinal,
+          'fechaRegistro': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
       );
-
-      final response = await http.get(url);
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final datosCalculados = json.decode(response.body);
-        final user = FirebaseAuth.instance.currentUser;
-
-        if (user != null) {
-          await FirebaseFirestore.instance
-              .collection('usuarios')
-              .doc(user.uid)
-              .set({
-                'nombre': _nombreController.text.trim(),
-                'fechaNacimiento': _fechaNacimiento?.toIso8601String(),
-                'peso_kg': datosCalculados['peso_kg'],
-                'altura_cm': datosCalculados['altura_cm'],
-                'genero': datosCalculados['genero'],
-                'edad': datosCalculados['edad_anios'],
-                'nivelActividad': _nivelActividad,
-                'tmb': datosCalculados['tmb'],
-                'calorias_mantenimiento':
-                    datosCalculados['calorias_mantenimiento'],
-                'meta_calorica': _metaCaloricaController.text.isNotEmpty
-                    ? int.parse(_metaCaloricaController.text)
-                    : datosCalculados['calorias_mantenimiento'],
-                'fechaRegistro': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
-        }
-
-        if (!mounted) return;
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const PantallaPrincipal()),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error del servidor: ${response.body}')),
-        );
-      }
+      // 5. Redirigir al Dashboard
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const PantallaPrincipal()),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error de conexion: $e')));
+          .showSnackBar(SnackBar(content: Text('Error al guardar datos: $e')));
     }
   }
 
