@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ============================================================================
@@ -43,11 +44,23 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
           .collection('catalogo_alimentos')
           .get();
 
-      final lista = snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id; // Guardamos el ID del documento
-        return data;
-      }).toList();
+      final user = FirebaseAuth.instance.currentUser;
+
+      final lista = snapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            if (data['categoria'] == 'Personalizado' &&
+                data['creadoPor'] != user?.uid) {
+              return false;
+            }
+            return true;
+          })
+          .map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          })
+          .toList();
 
       if (mounted) {
         setState(() {
@@ -122,6 +135,9 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     }
 
     // --- GUARDAR EN FIREBASE ---
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     try {
       String docId = nombre
           .toLowerCase()
@@ -131,7 +147,8 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
       final dataParaGuardar = {
         'nombre': nombre,
         'unidades': unidades,
-        'categoria': 'Personalizado', // Categoría por defecto para los creados
+        'categoria': 'Personalizado',
+        'creadoPor': user.uid, // Firma del usuario
       };
 
       await FirebaseFirestore.instance
