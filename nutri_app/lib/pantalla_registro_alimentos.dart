@@ -40,21 +40,15 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
   // --- CONEXIÓN A FIREBASE ---
   Future<void> _cargarAlimentosDeFirestore() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
+      final user = FirebaseAuth.instance.currentUser;
+
+      // 1. Cargar catálogo general (excluyendo los personalizados viejos si aún existen)
+      final snapshotGeneral = await FirebaseFirestore.instance
           .collection('catalogo_alimentos')
           .get();
 
-      final user = FirebaseAuth.instance.currentUser;
-
-      final lista = snapshot.docs
-          .where((doc) {
-            final data = doc.data();
-            if (data['categoria'] == 'Personalizado' &&
-                data['creadoPor'] != user?.uid) {
-              return false;
-            }
-            return true;
-          })
+      final listaGeneral = snapshotGeneral.docs
+          .where((doc) => doc.data()['categoria'] != 'Personalizado')
           .map((doc) {
             final data = doc.data();
             data['id'] = doc.id;
@@ -62,18 +56,35 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
           })
           .toList();
 
+      // 2. Cargar alimentos personalizados de la subcolección del usuario
+      List<Map<String, dynamic>> listaPersonalizada = [];
+      if (user != null) {
+        final snapshotPersonalizado = await FirebaseFirestore.instance
+            .collection('usuarios') // Coleccion principal de usuarios
+            .doc(user.uid) // Documento del usuario actual
+            .collection(
+              'alimentos_personalizados',
+            ) // Subcoleccion de alimentos personalizados
+            .get();
+
+        listaPersonalizada = snapshotPersonalizado.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
+      }
+
+      // 3. Combinar ambas listas
       if (mounted) {
         setState(() {
-          _catalogoCompleto = lista;
+          _catalogoCompleto = [...listaGeneral, ...listaPersonalizada];
           _resultados = List.from(_catalogoCompleto);
           _cargando = false;
         });
       }
     } catch (e) {
       debugPrint("Error descargando catálogo: $e");
-      if (mounted) {
-        setState(() => _cargando = false);
-      }
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
@@ -152,7 +163,9 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
       };
 
       await FirebaseFirestore.instance
-          .collection('catalogo_alimentos')
+          .collection('usuarios')
+          .doc(user.uid)
+          .collection('alimentos_personalizados')
           .doc(docId)
           .set(dataParaGuardar);
 
