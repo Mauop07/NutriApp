@@ -1,0 +1,873 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'pantalla_registro_alimentos.dart';
+import 'pantalla_datos_personales.dart';
+import 'main.dart';
+import 'notification_service.dart'; // <-- 1. Importamos el servicio de notificaciones del Scrum 30
+import 'pantalla_configuracion_notificaciones.dart'; // <-- Importamos la vista de configuración
+
+/// Pantalla principal (Dashboard). Gestiona la navegacion inferior
+/// y muestra el resumen calorico diario, el progreso y la vista de perfil.
+class PantallaPrincipal extends StatefulWidget {
+  const PantallaPrincipal({super.key});
+  @override
+  State<PantallaPrincipal> createState() => _PantallaPrincipalState();
+}
+
+class _PantallaPrincipalState extends State<PantallaPrincipal> {
+  int _indiceActual = 1;
+  double _tmb = 0.0; // Tasa Metabolica Basal (BMR)
+  double _caloriasMantenimiento = 0.0; // Calorias de mantenimiento
+  
+  // Estado del Dashboard
+  double _caloriasActuales = 0.0;
+  double _caloriasMeta = 2000.0;
+  bool _cargandoDatos = true;
+  final List<Map<String, String>> _comidasDeHoy = [];
+  
+  // Datos del Perfil
+  String _nombreUsuario = 'Usuario';
+  String _correoUsuario = '';
+  String _fechaNacimiento = '-';
+  int _edad = 0;
+  double _pesoKg = 0.0;
+  double _alturaCm = 0.0;
+  String _genero = '-';
+  String _nivelActividad = '-';
+  String _factorActividad = '-';
+
+  // Obtiene la fecha actual en formato YYYY-MM-DD para usarla como ID
+  String _obtenerFechaHoy() {
+    final ahora = DateTime.now();
+    return '${ahora.year}-${ahora.month.toString().padLeft(2, '0')}-${ahora.day.toString().padLeft(2, '0')}';
+  }
+
+  // Guarda la comida en el historial diario del usuario en Firestore
+  Future<void> _guardarComidaEnFirestore(
+    String nombre,
+    int kcal,
+    String hora,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final fechaHoy = _obtenerFechaHoy();
+    final docRef = FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .collection('historial_diario')
+        .doc(fechaHoy);
+    final nuevaComida = {
+      'hora': hora,
+      'comida': nombre,
+      'calorias': '$kcal kcal',
+    };
+    try {
+      await docRef.set({
+        'calorias_totales': FieldValue.increment(kcal),
+        'comidas': FieldValue.arrayUnion([nuevaComida]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("Error guardando en historial: $e");
+    }
+  }
+
+  bool get _limiteSuperado => _caloriasActuales > _caloriasMeta;
+
+  @override
+  void initState() {
+    super.initState();
+    _inicializarNotificacionesYDatos(); // <-- 2. Inicializamos notificaciones y datos al arrancar
+  }
+
+  Future<void> _inicializarNotificacionesYDatos() async {
+    // Inicializar el servicio de notificaciones (Scrum 30)
+    await NotificationService().init();
+    // Cargar los datos del usuario
+    await _cargarDatosUsuario();
+  }
+
+  /// Recupera la informacion del usuario autenticado desde Firestore.
+  Future<void> _cargarDatosUsuario() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _correoUsuario = user.email ?? 'Sin correo';
+      });
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(user.uid)
+            .get();
+            
+        final fechaHoy = _obtenerFechaHoy();
+        final historialDoc = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(user.uid)
+            .collection('historial_diario')
+            .doc(fechaHoy)
+            .get();
+            
+        double caloriasGuardadas = 0.0;
+        List<Map<String, String>> listaComidasGuardadas = [];
+        if (historialDoc.exists && historialDoc.data() != null) {
+          final historialData = historialDoc.data()!;
+          caloriasGuardadas = (historialData['calorias_totales'] ?? 0)
+              .toDouble();
+          if (historialData['comidas'] != null) {
+            final listaRaw = historialData['comidas'] as List;
+            listaComidasGuardadas = listaRaw
+                .map(
+                  (e) => {
+                    'hora': e['hora'].toString(),
+                    'comida': e['comida'].toString(),
+                    'calorias': e['calorias'].toString(),
+                  },
+                )
+                .toList();
+          }
+        }
+        if (doc.exists && doc.data() != null) {
+          final data = doc.data()!;
+          String fechaFormateada = '-';
+          if (data['fechaNacimiento'] != null) {
+            final fecha = DateTime.parse(data['fechaNacimiento']);
+            fechaFormateada = '${fecha.day}/${fecha.month}/${fecha.year}';
+          }
+          final actividadRaw = data['nivelActividad']?.toString() ?? '-';
+          final actividadTexto = _mapearActividad(actividadRaw);
+          setState(() {
+            _nombreUsuario = data['nombre'] ?? 'Usuario';
+            _caloriasMeta = (data['meta_calorica'] ?? 2000).toDouble();
+            _fechaNacimiento = fechaFormateada;
+            _edad = data['edad'] ?? 0;
+            _pesoKg = (data['peso_kg'] ?? 0).toDouble();
+            _alturaCm = (data['altura_cm'] ?? 0).toDouble();
+            _genero = data['genero'] ?? '-';
+            _nivelActividad = actividadTexto;
+            _factorActividad = actividadRaw;
+            _tmb = (data['tmb'] ?? 0).toDouble();
+            _caloriasMantenimiento = (data['calorias_mantenimiento'] ?? 0)
+                .toDouble();
+            _caloriasActuales = caloriasGuardadas;
+            _comidasDeHoy.clear();
+            _comidasDeHoy.addAll(listaComidasGuardadas);
+          });
+        }
+      } catch (e) {
+        debugPrint("Error leyendo Firestore: $e");
+      } finally {
+        setState(() {
+          _cargandoDatos = false;
+        });
+      }
+    } else {
+      setState(() {
+        _cargandoDatos = false;
+      });
+    }
+  }
+
+  String _mapearActividad(String valor) {
+    switch (valor) {
+      case '1.2':
+        return 'Sedentario';
+      case '1.375':
+        return 'Ligero';
+      case '1.55':
+        return 'Moderado';
+      case '1.725':
+        return 'Activo';
+      case '1.9':
+        return 'Muy Activo';
+      default:
+        return valor;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_cargandoDatos) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+      );
+    }
+    return Scaffold(
+      backgroundColor: _indiceActual == 2
+          ? Colors.white
+          : (_limiteSuperado
+              ? const Color(0xFFE53935)
+              : const Color(0xFF43A047)),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _obtenerPantallaActual(),
+          ),
+        ),
+      ),
+      bottomNavigationBar: _buildBottomNavigationBar(),
+    );
+  }
+
+  Widget _obtenerPantallaActual() {
+    switch (_indiceActual) {
+      case 0:
+        return _buildHistorial();
+      case 1:
+        return _buildDashboard();
+      case 2:
+        return _buildPerfil();
+      default:
+        return _buildDashboard();
+    }
+  }
+
+  Widget _buildHistorial() {
+    return const Center(
+      key: ValueKey(0),
+      child: Text(
+        'Historial de Comidas\n(Proximamente)',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboard() {
+    return KeyedSubtree(
+      key: const ValueKey(1),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          _buildTextosEstado(),
+          const SizedBox(height: 30),
+          _buildAroProgreso(),
+          const SizedBox(height: 30),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: _buildTablaComidas(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPerfil() {
+    return KeyedSubtree(
+      key: const ValueKey(2),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          const Text(
+            'Mi Perfil',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Colors.blueAccent,
+                          child: Icon(
+                            Icons.person,
+                            size: 35,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _nombreUsuario,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _correoUsuario,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Informacion personal',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFilaDato('Fecha de nacimiento', _fechaNacimiento),
+                        const Divider(),
+                        _buildFilaDato('Peso', '${_pesoKg.toInt()} kg'),
+                        const Divider(),
+                        _buildFilaDato('Estatura', '${_alturaCm.toInt()} cm'),
+                        const Divider(),
+                        _buildFilaDato('Genero', _genero),
+                        const Divider(),
+                        _buildFilaDato('Nivel de actividad', _nivelActividad),
+                        const Divider(),
+                        _buildFilaDatoInteractiva(
+                          'Tasa Metabolica Basal (TMB)',
+                          '${_tmb.toInt()} kcal',
+                          () {
+                            String formulaAmigable = _genero == 'Masculino'
+                                ? '88.4 + (13.4 × ${_pesoKg.toInt()} kg) + (4.8 × ${_alturaCm.toInt()} cm) - (5.7 × $_edad años)'
+                                : '447.6 + (9.2 × ${_pesoKg.toInt()} kg) + (3.1 × ${_alturaCm.toInt()} cm) - (4.3 × $_edad años)';
+                            _mostrarExplicacionCalculo(
+                              'Tasa Metabolica Basal',
+                              'Calorias diarias que tu cuerpo requiere exclusivamente para mantener sus funciones vitales en reposo.\n\n'
+                                  'Calculo (Harris-Benedict):\n'
+                                  '$formulaAmigable\n\n'
+                                  'Total = ${_tmb.toInt()} kcal.',
+                            );
+                          },
+                        ),
+                        const Divider(),
+                        _buildFilaDatoInteractiva(
+                          'Calorias de Mantenimiento',
+                          '${_caloriasMantenimiento.toInt()} kcal',
+                          () => _mostrarExplicacionCalculo(
+                            'Calorias de Mantenimiento',
+                            'Calorias diarias requeridas para mantener tu peso actual, ajustadas a tu estilo de vida.\n\n'
+                                'Calculo:\n'
+                                'TMB (${_tmb.toInt()} kcal) × Nivel de actividad ($_nivelActividad: $_factorActividad).',
+                          ),
+                        ),
+                        const Divider(),
+                        _buildFilaDato(
+                          'Meta calorica (Ingresada)',
+                          '${_caloriasMeta.toInt()} kcal',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  // Botón de Progreso
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey[300]!, width: 1),
+                        ),
+                      ),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Seccion de Progreso proximamente'),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Ver Progreso',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Botón para Editar Perfil
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                        elevation: 1,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey[300]!, width: 1),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const PantallaDatosPersonales(),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Editar Perfil',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // <-- 3. NUEVO BOTÓN: Configuración de Notificaciones (Scrum 30)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black87,
+                        elevation: 1,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey[300]!, width: 1),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const PantallaConfiguracionNotificaciones(),
+                          ),
+                        );
+                      },
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.notifications_active_outlined, color: Colors.blueAccent),
+                          SizedBox(width: 8),
+                          Text(
+                            'Configurar Notificaciones (Scrum 30)',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Botón de Cerrar Sesión
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        elevation: 1,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey[300]!, width: 1),
+                        ),
+                      ),
+                      onPressed: () async {
+                        await FirebaseAuth.instance.signOut();
+                        if (!context.mounted) return;
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const PantallaLogin(),
+                          ),
+                          (route) => false,
+                        );
+                      },
+                      child: const Text(
+                        'Cerrar Sesion',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilaDato(String etiqueta, String valor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          etiqueta,
+          style: const TextStyle(color: Colors.black54, fontSize: 15),
+        ),
+        Text(
+          valor,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilaDatoInteractiva(
+    String etiqueta,
+    String valor,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Text(
+                  etiqueta,
+                  style: const TextStyle(color: Colors.black54, fontSize: 15),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Colors.blueAccent,
+                ),
+              ],
+            ),
+            Text(
+              valor,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _mostrarExplicacionCalculo(String titulo, String explicacion) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Text(
+            titulo,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            explicacion,
+            style: const TextStyle(fontSize: 15, color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Entendido',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTextosEstado() {
+    return Column(
+      children: [
+        Text(
+          _limiteSuperado ? 'Limite superado' : 'Vas muy bien',
+          style: const TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _limiteSuperado
+              ? 'Has superado tu meta calorica'
+              : 'Sigue con tus habitos saludables',
+          style: const TextStyle(fontSize: 18, color: Colors.white70),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAroProgreso() {
+    final progreso = (_caloriasActuales / _caloriasMeta).clamp(0.0, 1.0);
+    return SizedBox(
+      width: 220,
+      height: 220,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CircularProgressIndicator(
+            value: progreso,
+            strokeWidth: 16,
+            backgroundColor: Colors.black12,
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _caloriasActuales.toInt().toString(),
+                  style: const TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  '/ ${_caloriasMeta.toInt()} kcal',
+                  style: const TextStyle(fontSize: 18, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTablaComidas() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Center(
+            child: Text(
+              'Comidas de hoy',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildFilaTabla('Hora', 'Comida', 'Calorías', esEncabezado: true),
+          const SizedBox(height: 4),
+          const Divider(color: Colors.black26, thickness: 2),
+          Expanded(
+            child: _comidasDeHoy.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Aún no has registrado comidas',
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _comidasDeHoy.length,
+                    itemBuilder: (context, index) {
+                      final comida = _comidasDeHoy[index];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6.0),
+                        child: _buildFilaTabla(
+                          comida['hora']!,
+                          comida['comida']!,
+                          comida['calorias']!,
+                          esCaloriaAzul: true,
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const SizedBox(height: 10),
+          _buildBotonRegistrar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilaTabla(
+    String hora,
+    String comida,
+    String calorias, {
+    bool esEncabezado = false,
+    bool esCaloriaAzul = false,
+  }) {
+    final estiloBase = TextStyle(
+      fontSize: 14,
+      color: esEncabezado ? Colors.black54 : Colors.black,
+      fontWeight: FontWeight.bold,
+    );
+    return Row(
+      children: [
+        SizedBox(width: 70, child: Text(hora, style: estiloBase)),
+        Expanded(
+          child: Text(comida, style: estiloBase, textAlign: TextAlign.left),
+        ),
+        Text(
+          calorias,
+          style: esCaloriaAzul
+              ? const TextStyle(
+                  color: Color(0xFF1E88E5),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                )
+              : estiloBase,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBotonRegistrar() {
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _limiteSuperado
+              ? const Color(0xFFE53935)
+              : Theme.of(context).colorScheme.primary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 0,
+        ),
+        onPressed: () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  PantallaRegistroAlimentos(
+                onComidaAgregada: (nombre, kcal) {
+                  final ahora = DateTime.now();
+                  final horaFormateada =
+                      '${ahora.hour.toString().padLeft(2, '0')}:${ahora.minute.toString().padLeft(2, '0')}';
+                  setState(() {
+                    _caloriasActuales += kcal;
+                    _comidasDeHoy.add({
+                      'hora': horaFormateada,
+                      'comida': nombre,
+                      'calorias': '$kcal kcal',
+                    });
+                  });
+                  _guardarComidaEnFirestore(nombre, kcal, horaFormateada);
+                },
+              ),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+            ),
+          );
+        },
+        child: const Text(
+          'Registrar comida',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar() {
+    return BottomNavigationBar(
+      currentIndex: _indiceActual,
+      selectedItemColor: _indiceActual == 1 && _limiteSuperado
+          ? const Color(0xFFE53935)
+          : Theme.of(context).colorScheme.primary,
+      onTap: (index) {
+        setState(() {
+          _indiceActual = index;
+        });
+      },
+      items: const [
+        BottomNavigationBarItem(
+          label: 'Historial',
+          icon: Icon(Icons.find_in_page_outlined),
+        ),
+        BottomNavigationBarItem(
+          label: 'Inicio',
+          icon: Icon(Icons.home_outlined),
+        ),
+        BottomNavigationBarItem(
+          label: 'Perfil',
+          icon: Icon(Icons.person_outlined),
+        ),
+      ],
+    );
+  }
+}
