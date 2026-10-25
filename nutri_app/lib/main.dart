@@ -1,21 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-
-// Dependencias de Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Pantallas locales
 import 'pantalla_principal.dart';
 import 'pantalla_datos_personales.dart';
-
-// Tema global de la aplicacion
 import 'app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializacion de Firebase con credenciales del proyecto
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyDyrMofbBJwepKxQKU6MC42HNWDwNaPCW8",
@@ -31,8 +25,7 @@ void main() async {
   runApp(const NutriApp());
 }
 
-/// Contenedor raiz de la aplicacion. Configura el tema global,
-/// la localizacion y la vista inicial.
+/// Contenedor raíz de la aplicación. Configura el tema global y el flujo de autenticación.
 class NutriApp extends StatelessWidget {
   const NutriApp({super.key});
 
@@ -41,7 +34,24 @@ class NutriApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const PantallaPrincipal(),
+      // Valida en tiempo real si hay una sesión activa en Firebase
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: Colors.white,
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (snapshot.hasData && snapshot.data != null) {
+            return const PantallaPrincipal();
+          }
+
+          return const PantallaLogin();
+        },
+      ),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -56,7 +66,6 @@ class NutriApp extends StatelessWidget {
 // PANTALLA DE LOGIN
 // ==========================================
 
-/// Interfaz de autenticacion por correo y contraseña con Firebase Auth.
 class PantallaLogin extends StatefulWidget {
   const PantallaLogin({super.key});
 
@@ -67,10 +76,8 @@ class PantallaLogin extends StatefulWidget {
 class _PantallaLoginState extends State<PantallaLogin> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
   bool _obscurePassword = true;
 
-  /// Valida credenciales e inicia sesion en Firebase.
   Future<void> _iniciarSesion() async {
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -214,7 +221,6 @@ class _PantallaLoginState extends State<PantallaLogin> {
 // PANTALLA DE REGISTRO
 // ==========================================
 
-/// Interfaz para registrar nuevas cuentas de usuario en Firebase Auth.
 class PantallaRegistro extends StatefulWidget {
   const PantallaRegistro({super.key});
 
@@ -225,10 +231,8 @@ class PantallaRegistro extends StatefulWidget {
 class _PantallaRegistroState extends State<PantallaRegistro> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
   bool _obscurePassword = true;
 
-  /// Registra el usuario y redirige al flujo de onboarding (datos personales).
   Future<void> _registrarUsuario() async {
     try {
       await FirebaseAuth.instance.createUserWithEmailAndPassword(

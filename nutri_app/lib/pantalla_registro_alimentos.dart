@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // 1. PANTALLA: REGISTRAR COMIDA (Conectada a Firestore)
 // ============================================================================
 class PantallaRegistroAlimentos extends StatefulWidget {
-  final Function(String, int) onComidaAgregada;
+  final Function(Map<String, dynamic>) onComidaAgregada;
 
   const PantallaRegistroAlimentos({super.key, required this.onComidaAgregada});
 
@@ -16,13 +16,12 @@ class PantallaRegistroAlimentos extends StatefulWidget {
 }
 
 class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
+  // Controladores y estados de búsqueda
   final TextEditingController _buscarController = TextEditingController();
-
   List<Map<String, dynamic>> _catalogoCompleto = [];
   List<Map<String, dynamic>> _resultados = [];
   final Map<String, int> _cantidades = {};
   final Map<String, int> _unidadesSeleccionadas = {};
-
   bool _cargando = true;
 
   @override
@@ -37,12 +36,11 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     super.dispose();
   }
 
-  // --- CONEXIÓN A FIREBASE ---
+  /// Carga el catálogo general desde Firestore y los alimentos personalizados del usuario.
   Future<void> _cargarAlimentosDeFirestore() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
 
-      // 1. Cargar catálogo general (excluyendo los personalizados viejos si aún existen)
       final snapshotGeneral = await FirebaseFirestore.instance
           .collection('catalogo_alimentos')
           .get();
@@ -56,15 +54,12 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
           })
           .toList();
 
-      // 2. Cargar alimentos personalizados de la subcolección del usuario
       List<Map<String, dynamic>> listaPersonalizada = [];
       if (user != null) {
         final snapshotPersonalizado = await FirebaseFirestore.instance
-            .collection('usuarios') // Coleccion principal de usuarios
-            .doc(user.uid) // Documento del usuario actual
-            .collection(
-              'alimentos_personalizados',
-            ) // Subcoleccion de alimentos personalizados
+            .collection('usuarios')
+            .doc(user.uid)
+            .collection('alimentos_personalizados')
             .get();
 
         listaPersonalizada = snapshotPersonalizado.docs.map((doc) {
@@ -74,7 +69,6 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
         }).toList();
       }
 
-      // 3. Combinar ambas listas
       if (mounted) {
         setState(() {
           _catalogoCompleto = [...listaGeneral, ...listaPersonalizada];
@@ -88,10 +82,9 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     }
   }
 
+  /// Filtra los alimentos del catálogo según el texto ingresado en la búsqueda.
   void _buscarAlimento() {
     final String consulta = _buscarController.text.trim().toLowerCase();
-
-    // Ocultar teclado automáticamente al buscar
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -108,11 +101,13 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     });
   }
 
+  /// Limpia el campo de búsqueda y restablece el catálogo completo.
   void _limpiarBusqueda() {
     _buscarController.clear();
     _buscarAlimento();
   }
 
+  /// Abre la pantalla para crear un nuevo alimento personalizado y lo registra en Firestore.
   Future<void> _abrirCrearAlimento() async {
     final Map<String, dynamic>? nuevoAlimento =
         await Navigator.push<Map<String, dynamic>>(
@@ -125,13 +120,11 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     if (nuevoAlimento == null || !mounted) return;
 
     final String nombre = nuevoAlimento['nombre'].toString();
-
     final List<Map<String, dynamic>> unidades =
         (nuevoAlimento['unidades'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
 
-    // Verificar en la lista local si ya existe
     final bool yaExiste = _catalogoCompleto.any(
       (alimento) =>
           (alimento['nombre'] ?? '').toString().toLowerCase() ==
@@ -145,7 +138,6 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
       return;
     }
 
-    // --- GUARDAR EN FIREBASE ---
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -159,7 +151,7 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
         'nombre': nombre,
         'unidades': unidades,
         'categoria': 'Personalizado',
-        'creadoPor': user.uid, // Firma del usuario
+        'creadoPor': user.uid,
       };
 
       await FirebaseFirestore.instance
@@ -176,7 +168,7 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
         _cantidades[nombre] = 1;
         _unidadesSeleccionadas[nombre] = 0;
         _buscarController.text = nombre;
-        _buscarAlimento(); // Refresca los resultados
+        _buscarAlimento();
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -188,6 +180,7 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     }
   }
 
+  /// Muestra el diálogo para configurar porciones y unidades de un alimento.
   Future<void> _configurarCantidad(Map<String, dynamic> alimento) async {
     final String nombre = alimento['nombre'].toString();
     final List<Map<String, dynamic>> unidades = (alimento['unidades'] as List)
@@ -212,6 +205,7 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     });
   }
 
+  /// Añade el alimento seleccionado al registro diario y notifica a la pantalla principal.
   void _anadirAlimento(Map<String, dynamic> alimento) {
     final String nombre = alimento['nombre'].toString();
     final List unidades = alimento['unidades'] as List;
@@ -223,17 +217,25 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     final int kcalTotal = kcalPorUnidad * cantidad;
     final String nombreUnidad = unidad['unidad'].toString();
 
-    final String nombreRegistrado = cantidad == 1
+    final String nombreVisual = cantidad == 1
         ? '$nombre ($nombreUnidad)'
         : '$nombre ($cantidad x $nombreUnidad)';
 
-    // Enviar datos al Dashboard
-    widget.onComidaAgregada(nombreRegistrado, kcalTotal);
+    final Map<String, dynamic> datosComida = {
+      'nombre_visual': nombreVisual,
+      'nombre_base': nombre,
+      'unidad': nombreUnidad,
+      'cantidad': cantidad,
+      'kcal_por_unidad': kcalPorUnidad,
+      'calorias_totales': kcalTotal,
+    };
+
+    widget.onComidaAgregada(datosComida);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$nombre añadido: $kcalTotal kcal.')),
     );
-    Navigator.pop(context); // Regresar al Dashboard
+    Navigator.pop(context);
   }
 
   @override
@@ -368,7 +370,7 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
                                 margin: const EdgeInsets.symmetric(vertical: 6),
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: colorPrincipal.withOpacity(0.05),
+                                  color: colorPrincipal.withValues(alpha: 0.05),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Row(
@@ -500,10 +502,12 @@ class _CrearAlimentoPersonalizadoScreenState
     super.dispose();
   }
 
+  /// Añade una nueva fila de unidad y calorías al formulario.
   void _agregarUnidad() {
     setState(() => _unidades.add(_UnidadPersonalizada()));
   }
 
+  /// Elimina una fila de unidad asegurando que siempre quede al menos una.
   void _eliminarUnidad(int index) {
     if (_unidades.length == 1) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -521,6 +525,7 @@ class _CrearAlimentoPersonalizadoScreenState
     });
   }
 
+  /// Valida los datos ingresados y devuelve el alimento personalizado creado.
   void _guardarAlimento() {
     final String nombre = _nombreController.text.trim();
     if (nombre.isEmpty) {
@@ -549,6 +554,7 @@ class _CrearAlimentoPersonalizadoScreenState
     });
   }
 
+  /// Muestra un mensaje de error flotante en la interfaz.
   void _mostrarError(String mensaje) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(mensaje)));
@@ -688,7 +694,7 @@ class _CrearAlimentoPersonalizadoScreenState
               height: 48,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: colorPrincipal.withOpacity(0.1),
+                  backgroundColor: colorPrincipal.withValues(alpha: 0.1),
                   foregroundColor: colorPrincipal,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -740,7 +746,7 @@ class _UnidadPersonalizada {
 }
 
 // ============================================================================
-// DIÁLOGO DE CANTIDAD
+// 3. DIÁLOGO DE CANTIDAD
 // ============================================================================
 class _DialogoCantidadAlimento extends StatefulWidget {
   final String nombre;
@@ -782,6 +788,7 @@ class _DialogoCantidadAlimentoState extends State<_DialogoCantidadAlimento> {
     super.dispose();
   }
 
+  /// Valida y devuelve la cantidad y unidad seleccionadas.
   void _guardar() {
     final int? cantidad = int.tryParse(_cantidadController.text.trim());
     if (cantidad == null || cantidad < 1 || cantidad > 999) {
@@ -813,7 +820,7 @@ class _DialogoCantidadAlimentoState extends State<_DialogoCantidadAlimento> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
-            value: _unidadElegida,
+            initialValue: _unidadElegida,
             isExpanded: true,
             decoration: const InputDecoration(
               labelStyle: TextStyle(fontSize: 19),

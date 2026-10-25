@@ -12,9 +12,7 @@ class PantallaHistorial extends StatefulWidget {
 }
 
 class _PantallaHistorialState extends State<PantallaHistorial> {
-  // ==========================================
-  // ESTADO Y VARIABLES LOCALES
-  // ==========================================
+  // Estados y variables locales de control
   DateTime _fechaSeleccionada = DateTime.now();
   int _tabActual = 0; // 0: Día, 1: Semana, 2: Mes
   bool _cargando = false;
@@ -45,13 +43,12 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     _cargarDatos();
   }
 
-  // ==========================================
-  // UTILIDADES Y FORMATO
-  // ==========================================
+  /// Formatea la fecha al estándar de Firestore (YYYY-MM-DD).
   String _formatoFechaBD(DateTime fecha) {
     return '${fecha.year}-${fecha.month.toString().padLeft(2, '0')}-${fecha.day.toString().padLeft(2, '0')}';
   }
 
+  /// Genera el texto descriptivo del período actual según la pestaña seleccionada.
   String _formatoTextoFecha() {
     if (_tabActual == 0) {
       return '${_fechaSeleccionada.day} de ${_meses[_fechaSeleccionada.month - 1]} de ${_fechaSeleccionada.year}';
@@ -72,12 +69,14 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     }
   }
 
+  /// Devuelve la etiqueta correspondiente al total acumulado del período.
   String _obtenerTextoTotal() {
     if (_tabActual == 0) return 'Total del día';
     if (_tabActual == 1) return 'Total de la semana';
     return 'Total del mes';
   }
 
+  /// Cambia la fecha de referencia en base a la dirección (-1 o 1) y el período activo.
   void _cambiarFecha(int direccion) {
     setState(() {
       if (_tabActual == 0) {
@@ -97,9 +96,7 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     _cargarDatos();
   }
 
-  // ==========================================
-  // OPERACIONES DE BASE DE DATOS (FIREBASE)
-  // ==========================================
+  /// Carga los registros de Firestore según la vista activa (diaria, semanal o mensual).
   Future<void> _cargarDatos() async {
     setState(() {
       _cargando = true;
@@ -111,7 +108,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
 
     try {
       if (_tabActual == 0) {
-        // Carga diaria individual
         final fechaStr = _formatoFechaBD(_fechaSeleccionada);
         final doc = await FirebaseFirestore.instance
             .collection('usuarios')
@@ -136,7 +132,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           });
         }
       } else {
-        // Carga agrupada (Semanal/Mensual)
         DateTime inicio;
         DateTime fin;
 
@@ -202,22 +197,20 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     }
   }
 
+  /// Elimina un registro de comida del día y actualiza el balance calórico en Firestore.
   Future<void> _eliminarComida(Map<String, dynamic> comidaAEliminar) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final caloriasStr = comidaAEliminar['calorias'].toString().replaceAll(
-      RegExp(r'[^0-9]'),
-      '',
-    );
-    final caloriasARestar = int.tryParse(caloriasStr) ?? 0;
+    final caloriasARestar = comidaAEliminar['calorias_totales'] as int? ?? 0;
+    final nombreVisual = comidaAEliminar['nombre_visual'] ?? 'Registro';
 
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('¿Eliminar registro?'),
         content: Text(
-          'Se eliminará "${comidaAEliminar['comida']}" y se restarán $caloriasARestar kcal de tu total.',
+          'Se eliminará "$nombreVisual" y se restarán $caloriasARestar kcal de tu total.',
         ),
         actionsPadding: const EdgeInsets.only(
           left: 16,
@@ -267,9 +260,10 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
             'calorias_totales': FieldValue.increment(-caloriasARestar),
           });
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Registro eliminado')));
+      }
 
       await _cargarDatos();
       if (widget.onDatosModificados != null) widget.onDatosModificados!();
@@ -279,110 +273,172 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     }
   }
 
+  /// Permite modificar las porciones o la hora de un registro de comida existente.
   Future<void> _editarComida(Map<String, dynamic> comidaActual) async {
+    final String horaActual = comidaActual['hora'] ?? '';
+    final String nombreBase = comidaActual['nombre_base'] ?? '';
+    final String unidad = comidaActual['unidad'] ?? '';
+    final int kcalPorUnidad = comidaActual['kcal_por_unidad'] ?? 0;
+    final int cantidadActual = comidaActual['cantidad'] ?? 1;
+
     final TextEditingController horaCtrl = TextEditingController(
-      text: comidaActual['hora'],
+      text: horaActual,
     );
-    final TextEditingController nombreCtrl = TextEditingController(
-      text: comidaActual['comida'],
+    final TextEditingController cantidadCtrl = TextEditingController(
+      text: cantidadActual.toString(),
     );
-    final calActualesStr = comidaActual['calorias'].toString().replaceAll(
-      RegExp(r'[^0-9]'),
-      '',
-    );
-    final TextEditingController calCtrl = TextEditingController(
-      text: calActualesStr,
-    );
+
+    int caloriasCalculadas = comidaActual['calorias_totales'] ?? 0;
 
     final confirmar = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar registro'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: horaCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Hora (Ej: 08:30)',
-                  prefixIcon: Icon(Icons.access_time, size: 20),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Editar cantidad'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      nombreBase,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$kcalPorUnidad kcal por $unidad',
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: horaCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Hora',
+                        prefixIcon: Icon(Icons.access_time, size: 20),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    TextField(
+                      controller: cantidadCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Porciones ($unidad)',
+                        prefixIcon: const Icon(Icons.numbers, size: 20),
+                      ),
+                      onChanged: (valor) {
+                        final int nuevaCantidad = int.tryParse(valor) ?? 0;
+                        setStateDialog(() {
+                          caloriasCalculadas = nuevaCantidad * kcalPorUnidad;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 15),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary
+                            .withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Total:',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '$caloriasCalculadas kcal',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: nombreCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Alimento',
-                  prefixIcon: Icon(Icons.restaurant, size: 20),
-                ),
+              actionsPadding: const EdgeInsets.only(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                top: 8,
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: calCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Calorías',
-                  prefixIcon: Icon(Icons.local_fire_department, size: 20),
+              actions: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text(
+                          'Cancelar',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text(
+                          'Guardar',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-        ),
-        actionsPadding: const EdgeInsets.only(
-          left: 16,
-          right: 16,
-          bottom: 16,
-          top: 8,
-        ),
-        actions: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancelar', style: TextStyle(fontSize: 16)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                  ),
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Guardar', style: TextStyle(fontSize: 16)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+              ],
+            );
+          },
+        );
+      },
     );
 
     if (confirmar != true) return;
+
+    final int nuevaCantidad = int.tryParse(cantidadCtrl.text.trim()) ?? 0;
+    if (nuevaCantidad <= 0) return;
+
     setState(() => _cargando = true);
 
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final int calViejas = int.tryParse(calActualesStr) ?? 0;
-      final int calNuevas = int.tryParse(calCtrl.text.trim()) ?? 0;
+      final int calViejas = comidaActual['calorias_totales'] ?? 0;
+      final int calNuevas = nuevaCantidad * kcalPorUnidad;
       final int diferenciaCalorias = calNuevas - calViejas;
 
-      final nuevaComida = {
-        'hora': horaCtrl.text.trim(),
-        'comida': nombreCtrl.text.trim(),
-        'calorias': '${calNuevas} kcal',
-      };
+      final String nuevoNombreVisual = nuevaCantidad == 1
+          ? '$nombreBase ($unidad)'
+          : '$nombreBase ($nuevaCantidad x $unidad)';
+
+      final nuevaComida = Map<String, dynamic>.from(comidaActual);
+      nuevaComida['hora'] = horaCtrl.text.trim();
+      nuevaComida['cantidad'] = nuevaCantidad;
+      nuevaComida['calorias_totales'] = calNuevas;
+      nuevaComida['nombre_visual'] = nuevoNombreVisual;
 
       final int index = _comidas.indexOf(comidaActual);
       if (index != -1) _comidas[index] = nuevaComida;
 
-      final nuevoTotal = _totalCalorias + diferenciaCalorias;
+      final double nuevoTotal = _totalCalorias + diferenciaCalorias;
       final fechaStr = _formatoFechaBD(_fechaSeleccionada);
 
       await FirebaseFirestore.instance
@@ -392,10 +448,11 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           .doc(fechaStr)
           .update({'comidas': _comidas, 'calorias_totales': nuevoTotal});
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Registro actualizado')));
+      }
 
       await _cargarDatos();
       if (widget.onDatosModificados != null) widget.onDatosModificados!();
@@ -405,9 +462,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     }
   }
 
-  // ==========================================
-  // CONSTRUCCIÓN DE LA INTERFAZ (UI)
-  // ==========================================
   @override
   Widget build(BuildContext context) {
     final colorPrincipal = Theme.of(context).colorScheme.primary;
@@ -424,8 +478,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           ),
         ),
         const SizedBox(height: 16),
-
-        // --- Selector de Pestañas (Día/Semana/Mes) ---
         Container(
           height: 40,
           decoration: BoxDecoration(
@@ -442,8 +494,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           ),
         ),
         const SizedBox(height: 16),
-
-        // --- Navegador de Fechas ---
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -499,8 +549,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           ],
         ),
         const SizedBox(height: 10),
-
-        // --- Lista de Registros ---
         Expanded(
           child: _cargando
               ? Center(child: CircularProgressIndicator(color: colorPrincipal))
@@ -519,7 +567,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                       : _resumenDias.length,
                   itemBuilder: (context, index) {
                     if (_tabActual == 0) {
-                      // Vista Diaria
                       final comida = _comidas[index];
                       return Padding(
                         padding: const EdgeInsets.symmetric(
@@ -540,15 +587,13 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                             ),
                             Expanded(
                               child: Text(
-                                comida['comida'] ?? '',
+                                comida['nombre_visual']?.toString() ?? '',
                                 style: const TextStyle(
                                   fontSize: 15,
                                   color: Colors.black87,
                                 ),
                               ),
                             ),
-
-                            // Área de Calorías y Acciones (Edición)
                             SizedBox(
                               height: 40,
                               child: Row(
@@ -557,7 +602,7 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                                   if (!_modoEdicion)
                                     Center(
                                       child: Text(
-                                        comida['calorias'] ?? '',
+                                        '${comida['calorias_totales']} kcal',
                                         style: const TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.bold,
@@ -565,7 +610,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                                         ),
                                       ),
                                     ),
-
                                   if (_modoEdicion) ...[
                                     InkWell(
                                       onTap: () => _editarComida(comida),
@@ -606,7 +650,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                         ),
                       );
                     } else {
-                      // Vista Semanal / Mensual
                       final dia = _resumenDias[index];
                       return InkWell(
                         onTap: () {
@@ -666,12 +709,10 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                 ),
         ),
         const SizedBox(height: 10),
-
-        // --- Tarjeta de Total Acumulado ---
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: colorPrincipal.withOpacity(0.12),
+            color: colorPrincipal.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -697,8 +738,6 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
           ),
         ),
         const SizedBox(height: 16),
-
-        // --- Botón de Edición Inferior ---
         Builder(
           builder: (context) {
             final bool sePuedeEditar = _tabActual == 0 && _comidas.isNotEmpty;
@@ -710,15 +749,15 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
                   side: BorderSide(
                     color: sePuedeEditar
                         ? (_modoEdicion
-                              ? Colors.red.withOpacity(0.6)
-                              : colorPrincipal.withOpacity(0.6))
+                              ? Colors.red.withValues(alpha: 0.6)
+                              : colorPrincipal.withValues(alpha: 0.6))
                         : Colors.grey.shade300,
                     width: 1.5,
                   ),
                   backgroundColor: sePuedeEditar
                       ? (_modoEdicion
-                            ? Colors.red.withOpacity(0.05)
-                            : colorPrincipal.withOpacity(0.05))
+                            ? Colors.red.withValues(alpha: 0.05)
+                            : colorPrincipal.withValues(alpha: 0.05))
                       : Colors.grey.shade100,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -748,9 +787,7 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     );
   }
 
-  // ==========================================
-  // WIDGETS AUXILIARES
-  // ==========================================
+  /// Widget auxiliar para la construcción de las pestañas de navegación temporal.
   Widget _buildTab(String texto, int indice, Color colorPrimario) {
     final bool activo = _tabActual == indice;
     return Expanded(

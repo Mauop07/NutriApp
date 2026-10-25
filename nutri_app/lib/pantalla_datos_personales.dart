@@ -2,14 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Pantallas locales
 import 'pantalla_principal.dart';
-
-// Calculos de calorias y TMB locales
 import 'calculadora_nutricional.dart';
 
-/// Pantalla de captura y actualizacion de datos fisiologicos.
-/// Gestiona metricas fisicas, calculo local de calorias y persistencia en Firestore.
 class PantallaDatosPersonales extends StatefulWidget {
   const PantallaDatosPersonales({super.key});
 
@@ -19,18 +14,18 @@ class PantallaDatosPersonales extends StatefulWidget {
 }
 
 class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
-  // Controladores de campos de texto
+  // Controladores de campos de texto para métricas de usuario
   final _nombreController = TextEditingController();
   final _pesoController = TextEditingController();
   final _estaturaController = TextEditingController();
   final _metaCaloricaController = TextEditingController();
 
-  // Estado local del formulario
+  // Estados locales del formulario
   DateTime? _fechaNacimiento;
   String? _genero;
   String? _nivelActividad;
 
-  // Catalogos para selectores
+  // Catálogos estáticos para selectores
   final List<String> _opcionesGenero = ['Femenino', 'Masculino'];
   final List<Map<String, dynamic>> _opcionesActividad = [
     {'label': 'Sedentario', 'value': '1.2'},
@@ -105,7 +100,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     }
   }
 
-  /// Calcula la edad en años con base en la fecha de nacimiento.
+  /// Calcula la edad en años con base en la fecha de nacimiento ingresada.
   int _calcularEdad(DateTime fechaNacimiento) {
     final hoy = DateTime.now();
     int edad = hoy.year - fechaNacimiento.year;
@@ -117,7 +112,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     return edad;
   }
 
-  /// Valida el formulario, ejecuta el calculo calorico localmente y persiste en Firestore.
+  /// Valida el formulario, ejecuta los cálculos calóricos y guarda los datos en Firestore.
   Future<void> _guardarYContinuar() async {
     if (_nombreController.text.trim().isEmpty ||
         _fechaNacimiento == null ||
@@ -137,13 +132,11 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // 1. Convertir datos
     final edad = _calcularEdad(_fechaNacimiento!);
     final peso = double.tryParse(_pesoController.text.trim()) ?? 0.0;
     final altura = double.tryParse(_estaturaController.text.trim()) ?? 0.0;
     final factorActividad = double.tryParse(_nivelActividad!) ?? 1.2;
 
-    // 2. Ejecutar cálculos locales instantáneos
     double tmbCalculada = CalculadoraNutricional.calcularTMB(
       genero: _genero!,
       pesoKg: peso,
@@ -156,7 +149,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
       factorActividad,
     );
 
-    // 3. Determinar meta calórica (si el usuario la dejó en blanco, usa mantenimiento)
     double metaFinal = caloriasMantenimiento;
     if (_metaCaloricaController.text.trim().isNotEmpty) {
       metaFinal =
@@ -165,7 +157,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     }
 
     try {
-      // 4. Subir a Firestore
       await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).set(
         {
           'nombre': _nombreController.text.trim(),
@@ -185,7 +176,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
 
       if (!mounted) return;
 
-      // 5. Redirigir al Dashboard
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const PantallaPrincipal()),
@@ -222,8 +212,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
               const SizedBox(height: 32),
-
-              // Nombre completo
               TextField(
                 controller: _nombreController,
                 decoration: const InputDecoration(
@@ -232,8 +220,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Fecha de nacimiento
               InkWell(
                 onTap: () => _seleccionarFecha(context),
                 child: InputDecorator(
@@ -249,8 +235,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Peso y Estatura
               Row(
                 children: [
                   Expanded(
@@ -277,8 +261,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 ],
               ),
               const SizedBox(height: 16),
-
-              // Genero
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(
                   labelText: 'Genero',
@@ -294,8 +276,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 onChanged: (newValue) => setState(() => _genero = newValue),
               ),
               const SizedBox(height: 16),
-
-              // Nivel de Actividad
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(
                   labelText: 'Nivel de Actividad',
@@ -312,8 +292,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                     setState(() => _nivelActividad = newValue),
               ),
               const SizedBox(height: 16),
-
-              // Meta Calorica opcional
               TextField(
                 controller: _metaCaloricaController,
                 keyboardType: TextInputType.number,
@@ -324,8 +302,6 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 ),
               ),
               const SizedBox(height: 40),
-
-              // Boton de Envio
               SizedBox(
                 width: double.infinity,
                 height: 50,

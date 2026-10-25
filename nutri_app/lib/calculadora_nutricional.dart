@@ -1,5 +1,5 @@
 class CalculadoraNutricional {
-  /// Calcula la Tasa Metabólica Basal (TMB) usando la fórmula de Harris-Benedict
+  /// Calcula la Tasa Metabólica Basal (TMB) usando la fórmula de Harris-Benedict[cite: 8].
   static double calcularTMB({
     required String genero,
     required double pesoKg,
@@ -13,7 +13,7 @@ class CalculadoraNutricional {
     }
   }
 
-  /// Calcula las calorías de mantenimiento según el factor de actividad
+  /// Calcula las calorías de mantenimiento según el factor de actividad[cite: 8].
   static double calcularMantenimiento(double tmb, double factorActividad) {
     return tmb * factorActividad;
   }

@@ -1,5 +1,20 @@
-gradle-wrapper.jar
-/.gradle
+# Flutter/Dart específicos
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+
+# IDEs y editores (VS Code y Android Studio)
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.DS_Store
+
+# Gradle y Android
+.gradle/
 /captures/
 /gradlew
 /gradlew.bat
@@ -7,8 +22,11 @@ gradle-wrapper.jar
 GeneratedPluginRegistrant.java
 .cxx/
 
-# Remember to never publicly share your keystore.
-# See https://flutter.dev/to/reference-keystore
+# Claves de firma y certificados (No subir)
 key.properties
 **/*.keystore
 **/*.jks
+
+# Logs y configuración local de Firebase
+firebase-debug.log
+.firebaserc

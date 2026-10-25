@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'notification_service.dart';
+import 'pantalla_configuracion_notificaciones.dart';
 import 'pantalla_registro_alimentos.dart';
+import 'pantalla_progreso.dart';
 import 'pantalla_datos_personales.dart';
 import 'pantalla_historial.dart';
 import 'main.dart';
 
-/// Pantalla principal (Dashboard). Gestiona la navegación inferior
-/// y muestra el resumen calórico diario, el progreso y la vista de perfil.
 class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
 
@@ -17,23 +18,21 @@ class PantallaPrincipal extends StatefulWidget {
 }
 
 class _PantallaPrincipalState extends State<PantallaPrincipal> {
-  // ==========================================
-  // ESTADO Y VARIABLES LOCALES
-  // ==========================================
+  // Estados y variables locales de control
   int _indiceActual = 1; // 0: Historial, 1: Inicio (Dashboard), 2: Perfil
   bool _cargandoDatos = true;
 
-  // --- Datos Fisiológicos y Metas ---
+  // Métricas fisiológicas y metas calóricas
   double _tmb = 0.0;
   double _caloriasMantenimiento = 0.0;
   double _caloriasMeta = 2000.0;
 
-  // --- Estado del Dashboard (Inicio) ---
+  // Estado del Dashboard (Inicio)
   double _caloriasActuales = 0.0;
   final List<Map<String, String>> _comidasDeHoy = [];
   bool get _limiteSuperado => _caloriasActuales > _caloriasMeta;
 
-  // --- Datos del Perfil de Usuario ---
+  // Datos del perfil de usuario
   String _nombreUsuario = 'Usuario';
   String _correoUsuario = '';
   String _fechaNacimiento = '-';
@@ -47,23 +46,19 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   @override
   void initState() {
     super.initState();
+    NotificationService().init();
     _cargarDatosUsuario();
   }
 
-  // ==========================================
-  // OPERACIONES DE BASE DE DATOS Y LÓGICA
-  // ==========================================
-
-  /// Obtiene la fecha actual en formato YYYY-MM-DD para usarla como ID de documento
+  /// Obtiene la fecha actual en formato YYYY-MM-DD para usarla como ID de documento.
   String _obtenerFechaHoy() {
     final ahora = DateTime.now();
     return '${ahora.year}-${ahora.month.toString().padLeft(2, '0')}-${ahora.day.toString().padLeft(2, '0')}';
   }
 
-  /// Guarda una nueva comida en el historial diario del usuario en Firestore
+  /// Guarda una nueva comida en el historial diario del usuario en Firestore.
   Future<void> _guardarComidaEnFirestore(
-    String nombre,
-    int kcal,
+    Map<String, dynamic> datosComida,
     String hora,
   ) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -76,16 +71,14 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         .collection('historial_diario')
         .doc(fechaHoy);
 
-    final nuevaComida = {
-      'hora': hora,
-      'comida': nombre,
-      'calorias': '$kcal kcal',
-    };
+    final nuevaComida = Map<String, dynamic>.from(datosComida);
+    nuevaComida['hora'] = hora;
+
+    final int kcalTotales = datosComida['calorias_totales'] as int;
 
     try {
-      // SetOptions(merge: true) crea el documento si no existe, o actualiza si ya existe
       await docRef.set({
-        'calorias_totales': FieldValue.increment(kcal),
+        'calorias_totales': FieldValue.increment(kcalTotales),
         'comidas': FieldValue.arrayUnion([nuevaComida]),
       }, SetOptions(merge: true));
     } catch (e) {
@@ -93,7 +86,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     }
   }
 
-  /// Recupera la información del usuario autenticado y su historial de hoy desde Firestore
+  /// Recupera la información del usuario autenticado y su historial de hoy desde Firestore.
   Future<void> _cargarDatosUsuario() async {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -101,13 +94,11 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
       setState(() => _correoUsuario = user.email ?? 'Sin correo');
 
       try {
-        // 1. Descargar datos del perfil
         final doc = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(user.uid)
             .get();
 
-        // 2. Descargar historial de comidas de hoy
         final fechaHoy = _obtenerFechaHoy();
         final historialDoc = await FirebaseFirestore.instance
             .collection('usuarios')
@@ -130,8 +121,8 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                 .map(
                   (e) => {
                     'hora': e['hora'].toString(),
-                    'comida': e['comida'].toString(),
-                    'calorias': e['calorias'].toString(),
+                    'comida': e['nombre_visual'].toString(),
+                    'calorias': '${e['calorias_totales']} kcal',
                   },
                 )
                 .toList();
@@ -164,7 +155,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
             _caloriasMantenimiento = (data['calorias_mantenimiento'] ?? 0)
                 .toDouble();
 
-            // Sincronización del Dashboard con los datos descargados
             _caloriasActuales = caloriasGuardadas;
             _comidasDeHoy.clear();
             _comidasDeHoy.addAll(listaComidasGuardadas);
@@ -180,7 +170,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     }
   }
 
-  /// Traduce el multiplicador numérico de actividad física a una etiqueta legible
+  /// Traduce el multiplicador numérico de actividad física a una etiqueta legible.
   String _mapearActividad(String valor) {
     switch (valor) {
       case '1.2':
@@ -198,9 +188,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     }
   }
 
-  // ==========================================
-  // CONSTRUCCIÓN DE LA INTERFAZ PRINCIPAL
-  // ==========================================
   @override
   Widget build(BuildContext context) {
     if (_cargandoDatos) {
@@ -233,9 +220,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
-  // ==========================================
-  // GESTOR DE NAVEGACIÓN Y PANTALLAS
-  // ==========================================
+  /// Gestiona la visualización según la pestaña activa en la barra de navegación.
   Widget _obtenerPantallaActual() {
     switch (_indiceActual) {
       case 0:
@@ -254,7 +239,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
       key: const ValueKey(0),
       child: PantallaHistorial(
         onDatosModificados: () {
-          // Callback: Refresca el Dashboard si se editó/eliminó algo en el Historial
           _cargarDatosUsuario();
         },
       ),
@@ -302,7 +286,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // --- Tarjeta de Identificación ---
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -348,8 +331,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // --- Tarjeta de Datos Fisiológicos ---
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -411,8 +392,6 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                     ),
                   ),
                   const SizedBox(height: 24),
-
-                  // --- Acciones de Cuenta ---
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -427,9 +406,10 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                         ),
                       ),
                       onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Sección de Progreso próximamente'),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PantallaProgreso(),
                           ),
                         );
                       },
@@ -467,6 +447,38 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                       },
                       child: const Text(
                         'Editar Perfil',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                        elevation: 1,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey[300]!, width: 1),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const PantallaConfiguracionNotificaciones(),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Configurar Notificaciones',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -518,9 +530,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
-  // ==========================================
-  // COMPONENTES AUXILIARES DEL PERFIL
-  // ==========================================
+  /// Construye una fila simple de datos para la sección de perfil.
   Widget _buildFilaDato(String etiqueta, String valor) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -541,6 +551,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Construye una fila interactiva con icono informativo para métricas avanzadas.
   Widget _buildFilaDatoInteractiva(
     String etiqueta,
     String valor,
@@ -582,6 +593,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Muestra un diálogo flotante explicativo sobre fórmulas de cálculo (TMB/Mantenimiento).
   void _mostrarExplicacionCalculo(String titulo, String explicacion) {
     showDialog(
       context: context,
@@ -613,9 +625,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
-  // ==========================================
-  // COMPONENTES DEL DASHBOARD (INICIO)
-  // ==========================================
+  /// Construye los textos de estado superior en el Dashboard principal.
   Widget _buildTextosEstado() {
     return Column(
       children: [
@@ -639,6 +649,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Construye el indicador circular de progreso calórico diario.
   Widget _buildAroProgreso() {
     final progreso = (_caloriasActuales / _caloriasMeta).clamp(0.0, 1.0);
     return SizedBox(
@@ -677,6 +688,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Construye la tabla resumen de comidas registradas hoy en el Dashboard.
   Widget _buildTablaComidas() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -685,7 +697,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -739,6 +751,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Construye una fila individual para la tabla de comidas del día.
   Widget _buildFilaTabla(
     String hora,
     String comida,
@@ -771,6 +784,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
+  /// Construye el botón principal de acción para registrar una nueva comida.
   Widget _buildBotonRegistrar() {
     return SizedBox(
       width: double.infinity,
@@ -791,20 +805,24 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
             PageRouteBuilder(
               pageBuilder: (context, animation, secondaryAnimation) =>
                   PantallaRegistroAlimentos(
-                    onComidaAgregada: (nombre, kcal) {
+                    onComidaAgregada: (datosComida) {
                       final ahora = DateTime.now();
                       final horaFormateada =
                           '${ahora.hour.toString().padLeft(2, '0')}:${ahora.minute.toString().padLeft(2, '0')}';
+
+                      final int kcal = datosComida['calorias_totales'] as int;
+                      final String nombreVisual =
+                          datosComida['nombre_visual'] as String;
 
                       setState(() {
                         _caloriasActuales += kcal;
                         _comidasDeHoy.add({
                           'hora': horaFormateada,
-                          'comida': nombre,
+                          'comida': nombreVisual,
                           'calorias': '$kcal kcal',
                         });
                       });
-                      _guardarComidaEnFirestore(nombre, kcal, horaFormateada);
+                      _guardarComidaEnFirestore(datosComida, horaFormateada);
                     },
                   ),
               transitionsBuilder:
@@ -826,9 +844,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     );
   }
 
-  // ==========================================
-  // BARRA DE NAVEGACIÓN INFERIOR
-  // ==========================================
+  /// Construye la barra de navegación inferior de la aplicación.
   Widget _buildBottomNavigationBar() {
     return BottomNavigationBar(
       currentIndex: _indiceActual,
