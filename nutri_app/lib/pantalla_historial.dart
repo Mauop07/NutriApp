@@ -109,12 +109,17 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
     try {
       if (_tabActual == 0) {
         final fechaStr = _formatoFechaBD(_fechaSeleccionada);
+        // FIX: Timeout de 5 segundos
         final doc = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(user.uid)
             .collection('historial_diario')
             .doc(fechaStr)
-            .get();
+            .get()
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => throw Exception('Offline'),
+            );
 
         if (doc.exists && doc.data() != null) {
           final data = doc.data()!;
@@ -162,7 +167,11 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
             .collection('historial_diario')
             .where(FieldPath.documentId, isGreaterThanOrEqualTo: inicioStr)
             .where(FieldPath.documentId, isLessThanOrEqualTo: finStr)
-            .get();
+            .get()
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => throw Exception('Offline'),
+            );
 
         double sumaTotal = 0;
         List<Map<String, dynamic>> resumen = [];
@@ -191,7 +200,12 @@ class _PantallaHistorialState extends State<PantallaHistorial> {
         });
       }
     } catch (e) {
-      debugPrint("Error leyendo historial: $e");
+      debugPrint("Cargando desde caché o sin registros: $e");
+      setState(() {
+        _comidas = [];
+        _resumenDias = [];
+        _totalCalorias = 0.0;
+      });
     } finally {
       if (mounted) setState(() => _cargando = false);
     }

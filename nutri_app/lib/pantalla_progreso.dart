@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
 
+// ============================================================================
+// PANTALLA: PROGRESO Y GRÁFICAS DE CONSUMO CALÓRICO
+// ============================================================================
 class PantallaProgreso extends StatefulWidget {
   const PantallaProgreso({super.key});
 
@@ -11,17 +15,22 @@ class PantallaProgreso extends StatefulWidget {
 }
 
 class _PantallaProgresoState extends State<PantallaProgreso> {
+  // --------------------------------------------------------------------------
   // Estados y variables locales de control
+  // --------------------------------------------------------------------------
   bool _primeraCarga = true;
   bool _cargandoDatos = false;
-  bool _esSemana = true;
+  bool _esSemana = true; // Controla el selector: true (Semana), false (Mes)
   int _metaCalorias = 2000;
-  int _offsetTemporal = 0;
+  int _offsetTemporal = 0; // Desplazamiento en semanas o meses (0 = actual)
 
-  // Estadísticas y datos para la gráfica
+  // --------------------------------------------------------------------------
+  // Estadísticas y datos procesados para la gráfica
+  // --------------------------------------------------------------------------
   List<Map<String, dynamic>> _datosGrafica = [];
   double _promedioPeriodo = 0;
-  int _diasEnMeta = 0;
+  int _diasEnMeta =
+      0; // Se usa para contar días (Semana) o semanas (Mes) en meta
   double _picoMaximo = 0;
 
   @override
@@ -30,7 +39,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
     _cargarDatosProgreso();
   }
 
-  /// Carga los datos de progreso desde Firestore según el período seleccionado (semana o mes).
+  /// Carga la meta calórica del usuario y descarga el historial desde Firestore
+  /// filtrando estrictamente por el rango de fechas seleccionado.
   Future<void> _cargarDatosProgreso() async {
     setState(() => _cargandoDatos = true);
 
@@ -38,11 +48,17 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      // 1. Obtener la meta calórica (con Timeout)
       if (_primeraCarga) {
         final userDoc = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(user.uid)
-            .get();
+            .get()
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => throw Exception('Offline'),
+            );
+
         if (userDoc.exists && userDoc.data()?['meta_calorias'] != null) {
           _metaCalorias = (userDoc.data()?['meta_calorias'] as num).toInt();
         }
@@ -66,13 +82,18 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
       String inicioStr = DateFormat('yyyy-MM-dd').format(fechaInicio);
       String finStr = DateFormat('yyyy-MM-dd').format(fechaFin);
 
+      // 3. Consultar historial optimizado (con Timeout)
       final historialSnapshot = await FirebaseFirestore.instance
           .collection('usuarios')
           .doc(user.uid)
           .collection('historial_diario')
           .where(FieldPath.documentId, isGreaterThanOrEqualTo: inicioStr)
           .where(FieldPath.documentId, isLessThanOrEqualTo: finStr)
-          .get();
+          .get()
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw Exception('Offline'),
+          );
 
       Map<String, double> mapaCalorias = {};
       for (var doc in historialSnapshot.docs) {
@@ -86,7 +107,13 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
         _procesarDatosMes(mapaCalorias, fechaInicio, fechaFin);
       }
     } catch (e) {
-      debugPrint("Error cargando progreso: $e");
+      debugPrint("Cargando gráfica offline o sin registros: $e");
+      // Inicializar vacía si falla la conexión y la caché para que no rompa la UI
+      if (_esSemana) {
+        _procesarDatosSemana({}, DateTime.now());
+      } else {
+        _procesarDatosMes({}, DateTime.now(), DateTime.now());
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -142,7 +169,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
     _picoMaximo = maximoEncontrado;
   }
 
-  /// Procesa los datos agrupados por semanas para la vista mensual.
+  /// Procesa los datos sumando los 7 días de cada semana para la vista mensual.
   void _procesarDatosMes(
     Map<String, double> mapaCalorias,
     DateTime inicioMes,
@@ -161,33 +188,29 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
       int diaFin = (i == 3) ? diasEnMes : diaInicio + 6;
 
       double sumaSemana = 0;
-      int diasConDatos = 0;
 
+      // Sumamos todas las calorías de los días correspondientes a esta semana
       for (int d = diaInicio; d <= diaFin; d++) {
         final dia = DateTime(inicioMes.year, inicioMes.month, d);
         final fechaStr = DateFormat('yyyy-MM-dd').format(dia);
         if (mapaCalorias.containsKey(fechaStr)) {
           sumaSemana += mapaCalorias[fechaStr]!;
-          diasConDatos++;
         }
       }
-
-      double promedioSemana = diasConDatos > 0
-          ? (sumaSemana / diasConDatos)
-          : 0.0;
 
       temp.add({
         'etiqueta': 'Sem ${i + 1}',
         'fechaCompleta': 'Días $diaInicio al $diaFin',
-        'valor': promedioSemana,
+        'valor': sumaSemana, // Usamos el total acumulado, no el promedio
       });
 
-      if (promedioSemana > 0) {
-        sumaTotalMes += promedioSemana;
+      if (sumaSemana > 0) {
+        sumaTotalMes += sumaSemana;
         semanasConDatos++;
-        if (promedioSemana <= _metaCalorias) metasSemanales++;
-        if (promedioSemana > maximoEncontrado) {
-          maximoEncontrado = promedioSemana;
+        // Evaluamos si el consumo total de la semana superó la meta semanal (Meta diaria x 7)
+        if (sumaSemana <= (_metaCalorias * 7)) metasSemanales++;
+        if (sumaSemana > maximoEncontrado) {
+          maximoEncontrado = sumaSemana;
         }
       }
     }
@@ -200,7 +223,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
     _picoMaximo = maximoEncontrado;
   }
 
-  /// Genera el texto descriptivo del rango temporal actual.
+  /// Genera el texto descriptivo del rango temporal actual (Ej. "20 OCT - 26 OCT").
   String _obtenerTituloRango() {
     final hoy = DateTime.now();
     if (_esSemana) {
@@ -214,7 +237,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
     }
   }
 
-  /// Despliega el selector de fecha para navegar directamente a una semana o mes.
+  /// Despliega el selector de fecha para navegar directamente a una fecha específica.
   Future<void> _seleccionarFechaCalendario(BuildContext context) async {
     final hoy = DateTime.now();
     if (_esSemana) {
@@ -229,7 +252,6 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
         final lunesSeleccionado = seleccionada.subtract(
           Duration(days: seleccionada.weekday - 1),
         );
-
         setState(() {
           _offsetTemporal =
               lunesSeleccionado.difference(lunesActual).inDays ~/ 7;
@@ -256,17 +278,48 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
   }
 
   @override
-  Widget build(context) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     const Color colorDentroMeta = Color(0xFF2ECC71);
     const Color colorExcedido = Color(0xFFFF6B6B);
     final Color colorBorde = Colors.grey.shade300;
 
-    final double topeGrafica = _metaCalorias > 0
-        ? (_metaCalorias * 1.5)
-        : 3500.0;
-    const double alturaMax = 130.0;
+    // Escala máxima del eje Y: 5000 para vista diaria, 25000 para acumulados semanales (Mes)
+    double maximoEjeY = _esSemana ? 5000.0 : 25000.0;
+
+    // Conversión de datos procesados a la estructura requerida por fl_chart
+    List<BarChartGroupData> gruposBarras = [];
+    List<String> etiquetasX = [];
+
+    for (int i = 0; i < _datosGrafica.length; i++) {
+      final item = _datosGrafica[i];
+      double valor = item['valor'];
+      etiquetasX.add(item['etiqueta']);
+
+      // En la vista mensual, la meta se multiplica por 7 días
+      double metaEvaluada = _esSemana
+          ? _metaCalorias.toDouble()
+          : (_metaCalorias * 7).toDouble();
+      bool excedido = valor > metaEvaluada && valor > 0;
+      Color colorBarra = excedido ? colorExcedido : colorDentroMeta;
+
+      // Topear la altura visual de la barra para que no rompa el gráfico
+      double valorGrafica = valor > maximoEjeY ? maximoEjeY : valor;
+
+      gruposBarras.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: valorGrafica,
+              color: colorBarra,
+              width: _esSemana ? 16 : 24,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -282,6 +335,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
               : Column(
                   children: [
                     const SizedBox(height: 10),
+
+                    // 1. Cabecera con botón de retroceso
                     Stack(
                       alignment: Alignment.center,
                       children: [
@@ -309,10 +364,12 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                       ],
                     ),
                     const SizedBox(height: 24),
+
                     Expanded(
                       child: SingleChildScrollView(
                         child: Column(
                           children: [
+                            // 2. Selector Semana / Mes
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.grey[100],
@@ -395,6 +452,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                               ),
                             ),
                             const SizedBox(height: 20),
+
+                            // 3. Gráfica Profesional Integrada con fl_chart
                             Container(
                               height: 280,
                               padding: const EdgeInsets.all(16),
@@ -412,7 +471,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                                       Text(
                                         _esSemana
                                             ? 'Consumo diario'
-                                            : 'Promedio semanal',
+                                            : 'Consumo semanal',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
@@ -421,143 +480,156 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                                       ),
                                       const SizedBox(height: 15),
                                       Expanded(
-                                        child: Stack(
-                                          children: [
-                                            Positioned(
-                                              bottom:
-                                                  24 +
-                                                  (alturaMax *
-                                                      (_metaCalorias /
-                                                              topeGrafica)
-                                                          .clamp(0.0, 1.0)),
-                                              left: 0,
-                                              right: 0,
-                                              child: Container(
-                                                height: 1.5,
-                                                color: const Color.fromARGB(
-                                                  62,
-                                                  255,
-                                                  120,
-                                                  120,
-                                                ),
+                                        child: BarChart(
+                                          BarChartData(
+                                            alignment:
+                                                BarChartAlignment.spaceAround,
+                                            maxY: maximoEjeY,
+                                            barTouchData: BarTouchData(
+                                              enabled: true,
+                                              touchTooltipData: BarTouchTooltipData(
+                                                getTooltipItem:
+                                                    (
+                                                      group,
+                                                      groupIndex,
+                                                      rod,
+                                                      rodIndex,
+                                                    ) {
+                                                      final item =
+                                                          _datosGrafica[group.x
+                                                              .toInt()];
+                                                      return BarTooltipItem(
+                                                        '${item['fechaCompleta']}\n${rod.toY.toInt()} kcal',
+                                                        const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      );
+                                                    },
                                               ),
                                             ),
-                                            Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.end,
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.spaceAround,
-                                              children: _datosGrafica.map((
-                                                item,
-                                              ) {
-                                                final double valor =
-                                                    item['valor'];
-                                                final double proporcion =
-                                                    (valor / topeGrafica).clamp(
-                                                      0.0,
-                                                      1.0,
-                                                    );
-                                                final double alturaBarra =
-                                                    alturaMax * proporcion;
-
-                                                final bool excedido =
-                                                    valor > _metaCalorias &&
-                                                    valor > 0;
-                                                final Color colorBarra =
-                                                    excedido
-                                                    ? colorExcedido
-                                                    : colorDentroMeta;
-
-                                                return InkWell(
-                                                  onTap: () {
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).hideCurrentSnackBar();
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      SnackBar(
-                                                        content: Text(
-                                                          '${item['fechaCompleta']}: ${valor.toInt()} kcal',
-                                                        ),
-                                                        duration:
-                                                            const Duration(
-                                                              seconds: 2,
-                                                            ),
-                                                      ),
-                                                    );
-                                                  },
-                                                  child: Padding(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 4.0,
-                                                        ),
-                                                    child: Column(
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment.end,
-                                                      children: [
-                                                        Container(
-                                                          color: Colors.white,
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                horizontal: 2.0,
-                                                              ),
-                                                          child: FittedBox(
-                                                            child: Text(
-                                                              valor > 0
-                                                                  ? valor
-                                                                        .toInt()
-                                                                        .toString()
-                                                                  : '0',
-                                                              style:
-                                                                  const TextStyle(
-                                                                    fontSize:
-                                                                        10,
-                                                                    color: Colors
-                                                                        .grey,
-                                                                  ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                          height: 4,
-                                                        ),
-                                                        Container(
-                                                          width: 24,
-                                                          height:
-                                                              alturaBarra < 4
-                                                              ? 4
-                                                              : alturaBarra,
-                                                          decoration: BoxDecoration(
-                                                            color: colorBarra,
-                                                            borderRadius:
-                                                                BorderRadius.circular(
-                                                                  4,
+                                            titlesData: FlTitlesData(
+                                              show: true,
+                                              bottomTitles: AxisTitles(
+                                                sideTitles: SideTitles(
+                                                  showTitles: true,
+                                                  getTitlesWidget:
+                                                      (
+                                                        double value,
+                                                        TitleMeta meta,
+                                                      ) {
+                                                        int index = value
+                                                            .toInt();
+                                                        if (index >= 0 &&
+                                                            index <
+                                                                etiquetasX
+                                                                    .length) {
+                                                          return Padding(
+                                                            padding:
+                                                                const EdgeInsets.only(
+                                                                  top: 8.0,
                                                                 ),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                          height: 8,
-                                                        ),
-                                                        Text(
-                                                          item['etiqueta'],
-                                                          style:
-                                                              const TextStyle(
-                                                                fontSize: 11,
+                                                            child: Text(
+                                                              etiquetasX[index],
+                                                              style: const TextStyle(
+                                                                fontSize: 12,
+                                                                color: Colors
+                                                                    .black54,
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .bold,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        }
+                                                        return const Text('');
+                                                      },
+                                                ),
+                                              ),
+                                              leftTitles: AxisTitles(
+                                                sideTitles: SideTitles(
+                                                  showTitles: true,
+                                                  reservedSize: 45,
+                                                  getTitlesWidget: (value, meta) {
+                                                    if (_esSemana) {
+                                                      if (value == 0 ||
+                                                          value == 1000 ||
+                                                          value == 2000 ||
+                                                          value == 3000 ||
+                                                          value == 4000 ||
+                                                          value == 5000) {
+                                                        return Text(
+                                                          value
+                                                              .toInt()
+                                                              .toString(),
+                                                          style:
+                                                              const TextStyle(
+                                                                fontSize: 11,
                                                                 color: Colors
                                                                     .black54,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
                                                               ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                );
-                                              }).toList(),
+                                                        );
+                                                      }
+                                                    } else {
+                                                      if (value == 0 ||
+                                                          value == 5000 ||
+                                                          value == 10000 ||
+                                                          value == 15000 ||
+                                                          value == 20000 ||
+                                                          value == 25000) {
+                                                        return Text(
+                                                          value
+                                                              .toInt()
+                                                              .toString(),
+                                                          style:
+                                                              const TextStyle(
+                                                                fontSize: 10,
+                                                                color: Colors
+                                                                    .black54,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                              ),
+                                                        );
+                                                      }
+                                                    }
+                                                    return const Text('');
+                                                  },
+                                                ),
+                                              ),
+                                              topTitles: const AxisTitles(
+                                                sideTitles: SideTitles(
+                                                  showTitles: false,
+                                                ),
+                                              ),
+                                              rightTitles: const AxisTitles(
+                                                sideTitles: SideTitles(
+                                                  showTitles: false,
+                                                ),
+                                              ),
                                             ),
-                                          ],
+                                            gridData: const FlGridData(
+                                              show: false,
+                                            ),
+                                            borderData: FlBorderData(
+                                              show: true,
+                                              border: const Border(
+                                                left: BorderSide(
+                                                  color: Colors.black87,
+                                                  width: 2.0,
+                                                ),
+                                                bottom: BorderSide(
+                                                  color: Colors.black87,
+                                                  width: 2.0,
+                                                ),
+                                              ),
+                                            ),
+                                            barGroups: gruposBarras,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -577,6 +649,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                               ),
                             ),
                             const SizedBox(height: 20),
+
+                            // 4. Selector de Rango de Fecha Interactivo
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
@@ -629,7 +703,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                                             setState(() => _offsetTemporal++);
                                             _cargarDatosProgreso();
                                           }
-                                        : null,
+                                        : null, // Deshabilita la flecha si estamos en la semana/mes actual
                                     icon: Icon(
                                       Icons.chevron_right,
                                       color: _offsetTemporal < 0
@@ -641,6 +715,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                               ),
                             ),
                             const SizedBox(height: 20),
+
+                            // 5. Tarjetas de Resumen Estadístico
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
@@ -725,6 +801,7 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
                                 ],
                               ),
                             ),
+                            const SizedBox(height: 20),
                           ],
                         ),
                       ),

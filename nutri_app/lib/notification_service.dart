@@ -75,24 +75,6 @@ class NotificationService {
     );
   }
 
-  /// Dispara una notificación inmediata para pruebas de depuración.
-  Future<void> dispararPruebaInstantanea() async {
-    await flutterLocalNotificationsPlugin.show(
-      id: 999,
-      title: '¡Prueba exitosa!',
-      body: 'Si ves esto, los canales y permisos básicos funcionan.',
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'nutriapp_diario',
-          'Recordatorios Diarios',
-          importance: Importance.max,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
-    );
-  }
-
   /// Cancela una notificación programada según su identificador único.
   Future<void> cancelarNotificacion(int id) async {
     await flutterLocalNotificationsPlugin.cancel(id: id);

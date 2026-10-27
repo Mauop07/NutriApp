@@ -141,42 +141,51 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // FIX 1: Regex estricto para evitar crasheos con caracteres inválidos en Firebase
+    String docId = nombre
+        .toLowerCase()
+        .replaceAll(' ', '_')
+        .replaceAll(
+          RegExp(r'[^a-z0-9_]'),
+          '',
+        ); // Elimina todo lo que no sea letra, número o guión bajo
+
+    final dataParaGuardar = {
+      'nombre': nombre,
+      'unidades': unidades,
+      'categoria': 'Personalizado',
+      'creadoPor': user.uid,
+      'id': docId,
+    };
+
+    // FIX 2: Actualización Optimista (Actualizamos la interfaz AL INSTANTE)
+    setState(() {
+      _catalogoCompleto.add(dataParaGuardar);
+      _cantidades[nombre] = 1;
+      _unidadesSeleccionadas[nombre] = 0;
+      _buscarController.text = nombre;
+      _buscarAlimento();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"$nombre" creado y listo para usar.')),
+    );
+
+    // Mandamos el guardado a Firebase en segundo plano. Si falla por offline,
+    // la caché de Firebase lo subirá solo cuando regrese el internet.
     try {
-      String docId = nombre
-          .toLowerCase()
-          .replaceAll(' ', '_')
-          .replaceAll(RegExp(r'[áéíóú]'), 'a');
-
-      final dataParaGuardar = {
-        'nombre': nombre,
-        'unidades': unidades,
-        'categoria': 'Personalizado',
-        'creadoPor': user.uid,
-      };
-
       await FirebaseFirestore.instance
           .collection('usuarios')
           .doc(user.uid)
           .collection('alimentos_personalizados')
           .doc(docId)
-          .set(dataParaGuardar);
-
-      dataParaGuardar['id'] = docId;
-
-      setState(() {
-        _catalogoCompleto.add(dataParaGuardar);
-        _cantidades[nombre] = 1;
-        _unidadesSeleccionadas[nombre] = 0;
-        _buscarController.text = nombre;
-        _buscarAlimento();
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('"$nombre" se guardó en la base de datos.')),
-      );
+          .set(dataParaGuardar)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw Exception('Offline'),
+          );
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
+      debugPrint('Modo offline: se sincronizará automáticamente después.');
     }
   }
 
@@ -446,8 +455,8 @@ class _PantallaRegistroAlimentosState extends State<PantallaRegistroAlimentos> {
                                         backgroundColor: colorPrincipal,
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 12,
+                                          horizontal: 6,
+                                          vertical: 10,
                                         ),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(

@@ -652,9 +652,13 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   /// Construye el indicador circular de progreso calórico diario.
   Widget _buildAroProgreso() {
     final progreso = (_caloriasActuales / _caloriasMeta).clamp(0.0, 1.0);
+
+    final double anchoPantalla = MediaQuery.of(context).size.width;
+    final double tamanoAro = anchoPantalla * 0.55;
+
     return SizedBox(
-      width: 220,
-      height: 220,
+      width: tamanoAro,
+      height: tamanoAro,
       child: Stack(
         fit: StackFit.expand,
         children: [

@@ -325,12 +325,6 @@ class _PantallaConfiguracionNotificacionesState
         ),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black87),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bug_report, color: Colors.red),
-            onPressed: () => NotificationService().dispararPruebaInstantanea(),
-          ),
-        ],
       ),
       body: _cargando
           ? Center(
