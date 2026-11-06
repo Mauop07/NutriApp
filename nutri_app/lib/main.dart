@@ -39,6 +39,7 @@ class NutriApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'NutriApp',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       // Valida en tiempo real si hay una sesión activa en Firebase
@@ -100,7 +101,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error de autenticacion: ${e.toString()}')),
+        SnackBar(content: Text('Error de autenticación: ${e.toString()}')),
       );
     }
   }
@@ -153,7 +154,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  hintText: 'Correo electronico',
+                  hintText: 'Correo electrónico',
                   prefixIcon: Icon(Icons.email_rounded),
                 ),
               ),
@@ -248,9 +249,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('¡Cuenta creada con exito!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cuenta creada con éxito!')));
 
       Navigator.pushReplacement(
         context,
@@ -302,7 +303,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  hintText: 'Correo electronico',
+                  hintText: 'Correo electrónico',
                   prefixIcon: Icon(Icons.email_rounded),
                 ),
               ),
@@ -348,7 +349,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                   Navigator.pop(context);
                 },
                 child: Text(
-                  '¿Ya tienes cuenta? Inicia sesion',
+                  '¿Ya tienes cuenta? Inicia sesión',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w500,

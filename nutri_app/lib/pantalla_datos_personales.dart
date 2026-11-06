@@ -27,7 +27,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
 
   // Catálogos estáticos para selectores
   final List<String> _opcionesGenero = ['Femenino', 'Masculino'];
-  final List<Map<String, dynamic>> _opcionesActividad = [
+  final _opcionesActividad = [
     {'label': 'Sedentario', 'value': '1.2'},
     {'label': 'Ligero', 'value': '1.375'},
     {'label': 'Moderado', 'value': '1.55'},
@@ -54,8 +54,12 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
         final data = doc.data()!;
         setState(() {
           _nombreController.text = data['nombre'] ?? '';
-          _pesoController.text = (data['peso_kg'] ?? '').toString();
-          _estaturaController.text = (data['altura_cm'] ?? '').toString();
+          _pesoController.text = data['peso_kg'] != null
+              ? (data['peso_kg'] as num).round().toString()
+              : '';
+          _estaturaController.text = data['altura_cm'] != null
+              ? (data['altura_cm'] as num).round().toString()
+              : '';
 
           if (data['fechaNacimiento'] != null) {
             _fechaNacimiento = DateTime.parse(data['fechaNacimiento']);
@@ -69,8 +73,10 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
           }
 
           _nivelActividad = data['nivelActividad']?.toString();
-          _metaCaloricaController.text = (data['meta_calorica'] ?? '')
-              .toString();
+
+          _metaCaloricaController.text = data['meta_calorica'] != null
+              ? (data['meta_calorica'] as num).round().toString()
+              : '';
         });
       }
     }
@@ -89,7 +95,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
   Future<void> _seleccionarFecha(BuildContext context) async {
     final fechaSeleccionada = await showDatePicker(
       context: context,
-      initialDate: DateTime(2000),
+      initialDate: _fechaNacimiento ?? DateTime(2000),
       firstDate: DateTime(1920),
       lastDate: DateTime.now(),
     );
@@ -116,8 +122,8 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
   Future<void> _guardarYContinuar() async {
     if (_nombreController.text.trim().isEmpty ||
         _fechaNacimiento == null ||
-        _pesoController.text.isEmpty ||
-        _estaturaController.text.isEmpty ||
+        _pesoController.text.trim().isEmpty ||
+        _estaturaController.text.trim().isEmpty ||
         _genero == null ||
         _nivelActividad == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -136,6 +142,16 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
     final peso = double.tryParse(_pesoController.text.trim()) ?? 0.0;
     final altura = double.tryParse(_estaturaController.text.trim()) ?? 0.0;
     final factorActividad = double.tryParse(_nivelActividad!) ?? 1.2;
+
+    if (peso <= 0 || altura <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ingresa un peso y estatura válidos.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     double tmbCalculada = CalculadoraNutricional.calcularTMB(
       genero: _genero!,
@@ -176,9 +192,10 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const PantallaPrincipal()),
+        (route) => false,
       );
     } catch (e) {
       if (!mounted) return;
@@ -208,7 +225,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Estos datos son necesarios para calcular tu meta calorica ideal.',
+                'Estos datos son necesarios para calcular tu meta calórica ideal.',
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
               const SizedBox(height: 32),
@@ -262,8 +279,9 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                key: ValueKey('genero_$_genero'),
                 decoration: const InputDecoration(
-                  labelText: 'Genero',
+                  labelText: 'Género',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 initialValue: _genero,
@@ -277,6 +295,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                key: ValueKey('actividad_$_nivelActividad'),
                 decoration: const InputDecoration(
                   labelText: 'Nivel de Actividad',
                   prefixIcon: Icon(Icons.directions_run),
@@ -285,7 +304,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 items: _opcionesActividad.map((map) {
                   return DropdownMenuItem<String>(
                     value: map['value'],
-                    child: Text(map['label']),
+                    child: Text(map['label'] ?? ''),
                   );
                 }).toList(),
                 onChanged: (newValue) =>
@@ -296,7 +315,7 @@ class _PantallaDatosPersonalesState extends State<PantallaDatosPersonales> {
                 controller: _metaCaloricaController,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Meta Calorica (Opcional)',
+                  labelText: 'Meta Calórica (Opcional)',
                   hintText: 'Ej. 2000',
                   prefixIcon: Icon(Icons.local_fire_department_outlined),
                 ),

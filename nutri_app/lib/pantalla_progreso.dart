@@ -59,8 +59,8 @@ class _PantallaProgresoState extends State<PantallaProgreso> {
               onTimeout: () => throw Exception('Offline'),
             );
 
-        if (userDoc.exists && userDoc.data()?['meta_calorias'] != null) {
-          _metaCalorias = (userDoc.data()?['meta_calorias'] as num).toInt();
+        if (userDoc.exists && userDoc.data()?['meta_calorica'] != null) {
+          _metaCalorias = (userDoc.data()?['meta_calorica'] as num).toInt();
         }
       }
 
